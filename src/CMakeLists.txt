@@ -17,6 +17,8 @@ add_executable(
         hydro/hydro.cpp
         hydro/glmmhd/dedner_source.cpp
         hydro/prolongation/custom_ops.hpp
+        hydro/srcterms/constant_accel.hpp
+        hydro/srcterms/constant_accel.cpp
         hydro/srcterms/gravitational_field.hpp
         hydro/srcterms/tabular_cooling.hpp
         hydro/srcterms/tabular_cooling.cpp

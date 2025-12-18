@@ -87,6 +87,13 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
 } // namespace kh
 
+namespace rt {
+using namespace parthenon::driver::prelude;
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace rt
+
 namespace lw_implode {
 using namespace parthenon::driver::prelude;
 

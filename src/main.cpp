@@ -14,6 +14,7 @@
 #include "bvals/boundary_conditions_apk.hpp"
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
+#include "hydro/srcterms/constant_accel.hpp"
 #include "main.hpp"
 
 #include "pgen/pgen.hpp"
@@ -37,6 +38,8 @@ FillTracersFun_t ProblemFillTracers = nullptr;
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
   using parthenon::ParthenonStatus;
+  using BF = parthenon::BoundaryFace;
+  using parthenon::BoundaryFunction::BCSide;
   ParthenonManager pman;
 
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
@@ -92,6 +95,22 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
     pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
+  } else if (problem == "rt") {
+    Hydro::ProblemInitPackageData = rt::ProblemInitPackageData;
+    pman.app_input->ProblemGenerator = rt::ProblemGenerator;
+    pman.app_input->RegisterBoundaryCondition(
+        BF::inner_x2, "project_pressure",
+        Hydro::BoundaryFunction::ProjectPressure<X2DIR, BCSide::Inner>);
+    pman.app_input->RegisterBoundaryCondition(
+        BF::outer_x2, "project_pressure",
+        Hydro::BoundaryFunction::ProjectPressure<X2DIR, BCSide::Outer>);
+    pman.app_input->RegisterBoundaryCondition(
+        BF::inner_x3, "project_pressure",
+        Hydro::BoundaryFunction::ProjectPressure<X3DIR, BCSide::Inner>);
+    pman.app_input->RegisterBoundaryCondition(
+        BF::outer_x3, "project_pressure",
+        Hydro::BoundaryFunction::ProjectPressure<X3DIR, BCSide::Outer>);
+    Hydro::ProblemSourceFirstOrder = const_accel::ConstantAccelSrcTerm;
   } else if (problem == "lw_implode") {
     pman.app_input->ProblemGenerator = lw_implode::ProblemGenerator;
   } else if (problem == "rand_blast") {
@@ -123,9 +142,7 @@ int main(int argc, char *argv[]) {
   }
 
   const std::string REFLECTING = "reflecting";
-  using BF = parthenon::BoundaryFace;
   using Hydro::BoundaryFunction::ReflectBC;
-  using parthenon::BoundaryFunction::BCSide;
   pman.app_input->RegisterBoundaryCondition(BF::inner_x1, REFLECTING,
                                             ReflectBC<X1DIR, BCSide::Inner>);
   pman.app_input->RegisterBoundaryCondition(BF::outer_x1, REFLECTING,
