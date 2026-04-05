@@ -76,6 +76,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     std::shared_ptr<parthenon::StateDescriptor> hydro_pkg = pmb->packages.Get("Hydro");
     // Get data from hydro package
     const Real const_accel_srcterm = hydro_pkg->Param<Real>("const_accel_srcterm");
+    const Fluid fluid = hydro_pkg->Param<Fluid>("fluid");
 
     // Get index ranges for cells
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -123,6 +124,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       c = log(rho_ref / rho_0) / r_ref;
     }
 
+    // Read magnetic field information if enabled
+    Real b0;
+    if (fluid == Fluid::glmmhd) {
+      b0 = pin->GetReal("problem/jet", "b0");
+    }
+
     pmb->par_for(
         "Problem Generator: Jet", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
@@ -168,6 +175,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IM2, k, j, i) = 0.0;
           u(IM3, k, j, i) = 0.0;
           u(IEN, k, j, i) = pressure / gm1;
+
+          // Set magnetic fields if enabled
+          if (fluid == Fluid::glmmhd) {
+            u(IB1, k, j, i) = b0;
+            u(IB2, k, j, i) = 0.0;
+            u(IB3, k, j, i) = b0;
+            // Update energy
+            u(IEN, k, j, i) += 0.5 * SQR(b0);
+          }
         });
   }
 
