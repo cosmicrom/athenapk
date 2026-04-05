@@ -123,6 +123,14 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);
 } // namespace cluster
 
+namespace jet {
+using namespace parthenon::driver::prelude;
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
+void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
+void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
+} // namespace jet
+
 namespace sod {
 using namespace parthenon::driver::prelude;
 

@@ -18,6 +18,7 @@ target_sources(athenaPK PRIVATE
     diffusion.cpp
     field_loop.cpp
     kh.cpp
+    jet.cpp
     linear_wave.cpp
     linear_wave_mhd.cpp
     lw_implode.cpp
