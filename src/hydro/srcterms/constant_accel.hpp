@@ -25,7 +25,7 @@ namespace const_accel {
  * @param tm Simulation time struct
  * @param dt Time step size
  */
-void ConstantAccelSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+void ConstantAccel(MeshData<Real> *md, const parthenon::SimTime &tm,
                           const Real dt);
 
 } // namespace const_accel

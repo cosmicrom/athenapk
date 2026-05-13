@@ -16,7 +16,7 @@ dt        = 0.1   # time increment between outputs
 <parthenon/time>
 cfl        = 0.4     # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = 100000  # cycle limit
-tlim       = 8.5     # time limit
+tlim       = 16      # time limit
 integrator = vl2     # time integration algorithm
 ncycle_out = 1       # interval for stdout summary info
 
@@ -32,8 +32,8 @@ ox1_bc = periodic          # outer-X1 boundary flag
 nx2    = 200               # Number of zones in X2-direction
 x2min  = -0.5              # minimum value of X2
 x2max  = 0.5               # maximum value of X2
-ix2_bc = project_pressure  # inner-X2 boundary flag
-ox2_bc = project_pressure  # outer-X2 boundary flag
+ix2_bc = project_pressure_reflect  # inner-X2 boundary flag
+ox2_bc = project_pressure_reflect  # outer-X2 boundary flag
 
 nx3    = 1                 # Number of zones in X3-direction
 x3min  = -0.5              # minimum value of X3
@@ -49,8 +49,8 @@ reconstruction = plm
 gamma          = 1.4  # gamma = C_p/C_v
 
 <problem/rt>
-iprob               = 1
-perturb_amp         = 0.01
-density_ratio       = 2.0
-rseed               = -1
-const_accel_srcterm = -0.1
+iprob         = 1
+perturb_amp   = 0.01
+density_ratio = 2.0
+rseed         = -1
+const_accel   = -0.1

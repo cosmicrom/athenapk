@@ -23,19 +23,19 @@ ncycle_out = 10      # Interval for stdout summary info
 <parthenon/mesh>
 nghost = 2                 # Number of ghost zones
 
-nx1    = 50               # Number of zones in X1-direction
+nx1    = 100               # Number of zones in X1-direction
 x1min  = -0.16666667       # Minimum value of X1
 x1max  = 0.16666667        # Maximum value of X1
 ix1_bc = periodic          # Inner-X1 boundary flag
 ox1_bc = periodic          # Outer-X1 boundary flag
 
-nx2    = 100               # Number of zones in X2-direction
-x2min  = -0.5              # Minimum value of X2
-x2max  = 0.5               # Maximum value of X2
+nx2    = 200               # Number of zones in X2-direction
+x2min  = 0              # Minimum value of X2
+x2max  = 1               # Maximum value of X2
 ix2_bc = project_pressure  # Inner-X2 boundary flag
 ox2_bc = project_pressure  # Outer-X2 boundary flag
 
-nx3    = 50                 # Number of zones in X3-direction
+nx3    = 100                 # Number of zones in X3-direction
 x3min  = -0.16666667              # Minimum value of X3
 x3max  = 0.16666667               # Maximum value of X3
 ix3_bc = periodic          # Inner-X3 boundary flag
@@ -54,12 +54,15 @@ code_mass_cgs = 1
 code_time_cgs = 1
 
 <problem/jet>
-rho_min             = 1.0
-rho_max             = 2.0
-alpha               = 2
-const_accel_srcterm = -0.1
-rho_prof_mode       = expo  # Density profile (const, linear, power, or expo)
-jet_inject_radius   = 0.05   # Jet injection radius
-jet_inject_height   = 0.01   # Jet injection height
-jet_e_inject_rate   = 0.01     # Jet energy injection rate
-jet_m_inject_rate   = 0.01     # Jet mass injection rate
+rho_0 = 2.0
+rho_ref = 1.0
+r_ref = 0.3
+rho_prof_mode = expo  # Density profile (const, lin, pow, or expo)
+const_accel = -0.1
+
+jet_inject_radius = 0.05  # Jet injection radius
+jet_inject_height = 0.01  # Jet injection height
+jet_m_inject_rate = 0.01  # Jet mass injection rate
+jet_power = 0.03  # Jet power
+jet_ke_frac = 0.9  # Fraction of kinetic energy
+jet_q_frac = 0.1  # Fraction of thermal energy
