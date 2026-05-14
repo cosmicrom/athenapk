@@ -41,6 +41,11 @@ x3max  = 0.16666667               # Maximum value of X3
 ix3_bc = outflow          # Inner-X3 boundary flag
 ox3_bc = outflow          # Outer-X3 boundary flag
 
+<parthenon/meshblock>
+nx1    = 50
+nx2    = 50
+nx3    = 50
+
 <hydro>
 fluid          = euler
 eos            = adiabatic
