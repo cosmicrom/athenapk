@@ -18,6 +18,7 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
+#include "interface/metadata.hpp"
 #include "interface/variable_pack.hpp"
 #include "mesh/mesh.hpp"
 #include "mesh/meshblock.hpp"
@@ -63,6 +64,8 @@ struct JetInitStruct {
   Real r_ref;
   Real rho_delta;
   RhoProfileMode rho_prof_mode;
+  bool enable_tracer;
+  int nhydro;
   Real b0;
 };
 
@@ -75,6 +78,8 @@ struct HydroInjectStruct {
   Real q_frac;
   Real rho_rate;
   Real power_density;
+  bool enable_tracer;
+  int nhydro;
 };
 
 struct MagInjectStruct {
@@ -115,19 +120,25 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   PARTHENON_REQUIRE(ke_frac >= 0.0, "Input Invalid: jet_ke_frac < 0");
   // Jet thermal energy fraction
   const Real q_frac = pin->GetReal("problem/jet", "jet_q_frac");
-  hydro_pkg->AddParam("jet_q_frac", q_frac);
   PARTHENON_REQUIRE(q_frac >= 0.0, "Input Invalid: jet_q_frac < 0");
+  hydro_pkg->AddParam("jet_q_frac", q_frac);
+  // Enable tracer flag
+  const bool enable_tracer = pin->GetOrAddBoolean("problem/jet", "enable_tracer", false);
+  PARTHENON_REQUIRE(
+      !enable_tracer || hydro_pkg->Param<int>("nscalars") >= 1,
+      "Input Invalid: Enabling tracer for jet requires hydro/nscalars >= 1");
+  hydro_pkg->AddParam("enable_tracer", enable_tracer);
 
   //
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     // Jet magnetic energy fraction
     const Real b_frac = pin->GetOrAddReal("problem/jet", "jet_b_frac", 0.0);
-    hydro_pkg->AddParam("jet_b_frac", b_frac);
     PARTHENON_REQUIRE(b_frac >= 0.0, "Input Invalid: jet_b_frac < 0");
-    //
     PARTHENON_REQUIRE(abs(ke_frac + q_frac + b_frac - 1.0) < 1e-12,
                       "Input Invalid: Jet kinetic, thermal, and magnetic energy "
                       "fractions must sum to 1.0");
+    hydro_pkg->AddParam("jet_b_frac", b_frac);
+
     //
     if (b_frac > 0.0) {
       const Real mag_offset = pin->GetReal("problem/jet", "mag_field_inject_offset");
@@ -233,6 +244,11 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = pressure / gm1;
 
+        // Initialize tracer if enabled
+        if (jet_init_struct.enable_tracer) {
+          u(jet_init_struct.nhydro, k, j, i) = 0.0;
+        }
+
         // Set magnetic fields if enabled
         if (jet_init_struct.fluid == Fluid::glmmhd) {
           u(IB1, k, j, i) = jet_init_struct.b0;
@@ -300,14 +316,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     // Read jet parameters, check, and add to structure
     JetInitStruct jet_init_struct;
-    // Read fluid type from hydro package
     jet_init_struct.fluid = hydro_pkg->Param<Fluid>("fluid");
-    // Read constant acceleration from hydro package
     jet_init_struct.const_accel = hydro_pkg->Param<Real>("const_accel");
-    // Read in adiabatic index
     jet_init_struct.gamma = pin->GetReal("hydro", "gamma");
-    // Read bounds along the axis of the constant acceleration
     jet_init_struct.x2_min = hydro_pkg->Param<Real>("x2_min");
+    jet_init_struct.enable_tracer = hydro_pkg->Param<bool>("enable_tracer");
+    jet_init_struct.nhydro = hydro_pkg->Param<int>("nhydro");
+
     // Read and check in density data
     jet_init_struct.rho_0 = pin->GetReal("problem/jet", "rho_0");
     PARTHENON_REQUIRE(jet_init_struct.rho_0 > 0.0, "Input Invalid: rho_0 <= 0");
@@ -316,10 +331,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     jet_init_struct.r_ref = pin->GetReal("problem/jet", "r_ref");
     PARTHENON_REQUIRE(jet_init_struct.r_ref > 0.0, "Input Invalid: r_ref <= 0");
     jet_init_struct.rho_delta = jet_init_struct.rho_ref - jet_init_struct.rho_0;
+
     // Read in density profile mode and convert to enum. This is needed to safely pass
     // into Kokkos lambda
     jet_init_struct.rho_prof_mode = RhoProfileMap.at(
         pin->GetString("problem/jet", "rho_prof_mode", {"const", "lin", "pow", "expo"}));
+
     // Read magnetic field information if enabled
     if (jet_init_struct.fluid == Fluid::glmmhd) {
       jet_init_struct.b0 = pin->GetReal("problem/jet", "b0");
@@ -355,6 +372,11 @@ void HydroInject(
                                                   jet_inject_struct.power_density *
                                                   jet_inject_struct.ke_frac);
           cons(IDN, k, j, i) += dt * jet_inject_struct.rho_rate;
+
+          // Update tracer if enabled
+          if (jet_inject_struct.enable_tracer) {
+            cons(jet_inject_struct.nhydro, k, j, i) = cons(IDN, k, j, i);
+          }
         }
       });
 }
@@ -534,6 +556,8 @@ void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) 
   jet_inject_struct.volume = hydro_pkg->Param<Real>("jet_inject_volume");
   jet_inject_struct.ke_frac = hydro_pkg->Param<Real>("jet_ke_frac");
   jet_inject_struct.q_frac = hydro_pkg->Param<Real>("jet_q_frac");
+  jet_inject_struct.enable_tracer = hydro_pkg->Param<bool>("enable_tracer");
+  jet_inject_struct.nhydro = hydro_pkg->Param<int>("nhydro");
 
   // Apply a constant acceleration
   const_accel::ConstantAccel(md, tm, dt);
