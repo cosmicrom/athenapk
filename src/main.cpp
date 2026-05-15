@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->RegisterBoundaryCondition(
         BF::outer_x3, "project_pressure_reflect",
         Hydro::BoundaryFunction::ProjectPressureReflect<X3DIR, BCSide::Outer>);
-    Hydro::ProblemSourceFirstOrder = const_accel::ConstantAccel;
+    Hydro::ProblemSourceUnsplit = const_accel::ConstantAccel;
   } else if (problem == "lw_implode") {
     pman.app_input->ProblemGenerator = lw_implode::ProblemGenerator;
   } else if (problem == "rand_blast") {
@@ -139,7 +139,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->RegisterBoundaryCondition(
         BF::outer_x2, "project_pressure_outflow",
         Hydro::BoundaryFunction::ProjectPressureOutflow<X2DIR, BCSide::Outer>);
-    Hydro::ProblemSourceFirstOrder = jet::JetDriver;
+    Hydro::ProblemSourceUnsplit = jet::JetDriver;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

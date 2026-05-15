@@ -6,10 +6,19 @@
 //! \file constant_accel.cpp
 //========================================================================================
 
+// General headers
+#include <unordered_map>
+
 // AthenaPK headers
 #include "constant_accel.hpp"
 
 namespace const_accel {
+
+// Map for coordinate direction to momentum enum
+std::unordered_map<parthenon::CoordinateDirection, int> momentum_enum_map = {
+    {parthenon::CoordinateDirection::X1DIR, IM1},
+    {parthenon::CoordinateDirection::X2DIR, IM2},
+    {parthenon::CoordinateDirection::X3DIR, IM3}};
 
 void ConstantAccel(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   // Get cons mesh block packs
@@ -27,16 +36,8 @@ void ConstantAccel(MeshData<Real> *md, const parthenon::SimTime &tm, const Real 
   const parthenon::CoordinateDirection dir =
       hydro_pkg->Param<parthenon::CoordinateDirection>("const_accel_dir");
 
-  // Determine the enum values of momentum based off the const_accel_dir
-  // parameter in the hydro package
-  int momentum_enum_val;
-  if (dir == parthenon::CoordinateDirection::X1DIR) {
-    momentum_enum_val = IM1;
-  } else if (dir == parthenon::CoordinateDirection::X2DIR) {
-    momentum_enum_val = IM2;
-  } else {
-    momentum_enum_val = IM3;
-  }
+  // Get the enum value for momentum based off the direction of constant acceleration
+  int momentum_enum_val = momentum_enum_map.at(dir);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConstantAccel", parthenon::DevExecSpace(), 0,
