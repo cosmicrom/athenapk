@@ -159,9 +159,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
           "Input Invalid: mag_field_inject_type=tower is not implemented for the Jet "
           "problem. Use mag_field_inject_type=loop.");
       //
-      hydro_pkg->AddParam("mag_field_inject_type",
-                          MagFieldInjectTypeMap.at(pin->GetString(
-                              "problem/jet", "mag_field_inject_type", {"loop"})));
+      hydro_pkg->AddParam(
+          "mag_field_inject_type",
+          MagFieldInjectTypeMap.at(
+              pin->GetString("problem/jet", "mag_field_inject_type", {"loop", "tower"})));
       //
       hydro_pkg->AddParam("mag_field_inject_l_scale", mag_l_scale);
       //

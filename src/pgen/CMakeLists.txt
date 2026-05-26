@@ -26,5 +26,6 @@ target_sources(athenaPK PRIVATE
     rand_blast.cpp
     rt.cpp
     sod.cpp
+    shattering.cpp
     turbulence.cpp
     )

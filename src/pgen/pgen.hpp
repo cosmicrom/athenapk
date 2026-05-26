@@ -130,6 +130,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
 void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
 } // namespace jet
+namespace shattering {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace shattering
 
 namespace sod {
 using namespace parthenon::driver::prelude;

@@ -140,6 +140,9 @@ int main(int argc, char *argv[]) {
         BF::outer_x2, "project_pressure_outflow",
         Hydro::BoundaryFunction::ProjectPressureOutflow<X2DIR, BCSide::Outer>);
     Hydro::ProblemSourceUnsplit = jet::JetDriver;
+  } else if (problem == "shattering") {
+    pman.app_input->InitUserMeshData = shattering::InitUserMeshData;
+    pman.app_input->ProblemGenerator = shattering::ProblemGenerator;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {
