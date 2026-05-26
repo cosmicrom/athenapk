@@ -23,17 +23,17 @@ ncycle_out = 1       # interval for stdout summary info
 <parthenon/mesh>
 nghost = 2                 # Number of ghost zones
 
-nx1    = 200               # Number of zones in X1-direction
+nx1    = 100               # Number of zones in X1-direction
 x1min  = -0.16666667       # minimum value of X1
 x1max  = 0.16666667        # maximum value of X1
 ix1_bc = periodic          # inner-X1 boundary flag
 ox1_bc = periodic          # outer-X1 boundary flag
 
-nx2    = 400               # Number of zones in X2-direction
+nx2    = 200               # Number of zones in X2-direction
 x2min  = -0.5              # minimum value of X2
 x2max  = 0.5               # maximum value of X2
-ix2_bc = project_pressure  # inner-X2 boundary flag
-ox2_bc = project_pressure  # outer-X2 boundary flag
+ix2_bc = project_pressure_reflect  # inner-X2 boundary flag
+ox2_bc = project_pressure_reflect  # outer-X2 boundary flag
 
 nx3    = 1                 # Number of zones in X3-direction
 x3min  = -0.5              # minimum value of X3
@@ -49,9 +49,9 @@ reconstruction = plm
 gamma          = 1.4  # gamma = C_p/C_v
 
 <problem/rt>
-iprob               = 1
-perturb_amp         = 0.01
-density_ratio       = 2.0
-rseed               = -1
-const_accel_srcterm = -0.1
-b0                  = 0.01
+iprob         = 1
+perturb_amp   = 0.01
+density_ratio = 2.0
+rseed         = -1
+const_accel   = -0.1
+b0            = 0.01

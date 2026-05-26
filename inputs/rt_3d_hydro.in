@@ -38,8 +38,8 @@ ox2_bc = periodic          # outer-X2 boundary flag
 nx3    = 128               # Number of zones in X3-direction
 x3min  = -0.1              # minimum value of X3
 x3max  = 0.1               # maximum value of X3
-ix3_bc = project_pressure  # inner-X3 boundary flag
-ox3_bc = project_pressure  # outer-X3 boundary flag
+ix3_bc = project_pressure_reflect  # inner-X3 boundary flag
+ox3_bc = project_pressure_reflect  # outer-X3 boundary flag
 
 <hydro>
 fluid          = euler
@@ -49,8 +49,8 @@ reconstruction = plm
 gamma          = 1.66666667  # gamma = C_p/C_v
 
 <problem/rt>
-iprob               = 1
-perturb_amp         = 0.01
-density_ratio       = 2.0
-rseed               = -1
-const_accel_srcterm = -0.1
+iprob         = 1
+perturb_amp   = 0.01
+density_ratio = 2.0
+rseed         = -1
+const_accel   = -0.1

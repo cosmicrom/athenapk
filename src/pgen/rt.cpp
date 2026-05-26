@@ -32,9 +32,10 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
-  // Get the const_accel_srcterm from input and add it as a parameter to the hydro package
-  const Real const_accel_srcterm = pin->GetReal("problem/rt", "const_accel_srcterm");
-  hydro_pkg->AddParam<>("const_accel_srcterm", const_accel_srcterm);
+  // Get the constant acceleration from input and add it as a parameter to the hydro
+  // package
+  const Real const_accel = pin->GetReal("problem/rt", "const_accel");
+  hydro_pkg->AddParam<>("const_accel", const_accel);
 
   // Determine if the problem is 2D or 3D by checking the number of zones in the X3
   // direction defined in the input file. Then set a parameter in the hydro package to
@@ -50,7 +51,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // Get variables from the hydro package
   std::shared_ptr<parthenon::StateDescriptor> hydro_pkg = pmb->packages.Get("Hydro");
   const Fluid fluid = hydro_pkg->Param<Fluid>("fluid");
-  const Real const_accel_srcterm = hydro_pkg->Param<Real>("const_accel_srcterm");
+  const Real const_accel = hydro_pkg->Param<Real>("const_accel");
   // Determine if the problem is 2D or 3D based on the direction of the constant
   // acceleration set in the hydro package
   bool is_2d =
@@ -150,7 +151,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
           // Set energy
           u(IEN, k, j, i) =
-              (1.0 / gamma + const_accel_srcterm * density * coords.Xc<2>(j)) / gm1 +
+              (1.0 / gamma + const_accel * density * coords.Xc<2>(j)) / gm1 +
               0.5 * SQR(u(IM2, k, j, i)) / density;
 
           // Set magnetic fields if enabled
@@ -202,7 +203,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
           // Set energy
           u(IEN, k, j, i) =
-              (1.0 / gamma + const_accel_srcterm * density * coords.Xc<3>(k)) / gm1 +
+              (1.0 / gamma + const_accel * density * coords.Xc<3>(k)) / gm1 +
               0.5 * SQR(u(IM3, k, j, i)) / density;
 
           /// Set magnetic fields if enabled

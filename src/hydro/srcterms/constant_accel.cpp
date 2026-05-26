@@ -6,16 +6,22 @@
 //! \file constant_accel.cpp
 //========================================================================================
 
+// General headers
+#include <unordered_map>
+
 // AthenaPK headers
 #include "constant_accel.hpp"
 
 namespace const_accel {
 
-void ConstantAccelSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
-                          const Real dt) {
-  // Get cons and prim mesh block packs
-  const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &prim_pack =
-      md->PackVariables(std::vector<std::string>{"prim"});
+// Map for coordinate direction to momentum enum
+std::unordered_map<parthenon::CoordinateDirection, int> momentum_enum_map = {
+    {parthenon::CoordinateDirection::X1DIR, IM1},
+    {parthenon::CoordinateDirection::X2DIR, IM2},
+    {parthenon::CoordinateDirection::X3DIR, IM3}};
+
+void ConstantAccel(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
+  // Get cons mesh block packs
   const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &cons_pack =
       md->PackVariables(std::vector<std::string>{"cons"});
   // Get bounds
@@ -26,38 +32,27 @@ void ConstantAccelSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   // Get variables from hydro package
   std::shared_ptr<parthenon::StateDescriptor> hydro_pkg =
       md->GetMeshPointer()->packages.Get("Hydro");
-  const Real const_accel_srcterm = hydro_pkg->Param<Real>("const_accel_srcterm");
+  const Real const_accel = hydro_pkg->Param<Real>("const_accel");
   const parthenon::CoordinateDirection dir =
       hydro_pkg->Param<parthenon::CoordinateDirection>("const_accel_dir");
 
-  // Determine the enum values of velocity and momentum based off the const_accel_dir
-  // parameter in the hydro package
-  int velocity_enum_val;
-  int momentum_enum_val;
-  if (dir == parthenon::CoordinateDirection::X1DIR) {
-    velocity_enum_val = IV1;
-    momentum_enum_val = IM1;
-  } else if (dir == parthenon::CoordinateDirection::X2DIR) {
-    velocity_enum_val = IV2;
-    momentum_enum_val = IM2;
-  } else {
-    velocity_enum_val = IV3;
-    momentum_enum_val = IM3;
-  }
+  // Get the enum value for momentum based off the direction of constant acceleration
+  int momentum_enum_val = momentum_enum_map.at(dir);
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "ConstantAccelSrcTerm", parthenon::DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "ConstantAccel", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        // Get cons and prim variable packs
+        // Get cons variable packs
         parthenon::VariablePack<parthenon::Real> &cons = cons_pack(b);
-        parthenon::VariablePack<parthenon::Real> &prim = prim_pack(b);
         // Calculate the source term
-        Real src = dt * prim(IDN, k, j, i) * const_accel_srcterm;
+        const Real rho = cons(IDN, k, j, i);
+        const Real v = cons(momentum_enum_val, k, j, i) / rho;
+        const Real src = dt * rho * const_accel;
         // Update momentum
         cons(momentum_enum_val, k, j, i) += src;
         // Update energy
-        cons(IEN, k, j, i) += src * prim(velocity_enum_val, k, j, i);
+        cons(IEN, k, j, i) += src * v;
       });
 }
 

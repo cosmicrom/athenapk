@@ -42,9 +42,9 @@ ix3_bc = outflow          # Inner-X3 boundary flag
 ox3_bc = outflow          # Outer-X3 boundary flag
 
 <hydro>
-fluid          = euler
+fluid          = glmmhd
 eos            = adiabatic
-riemann        = hllc
+riemann        = hlld
 reconstruction = plm
 gamma          = 1.4  # gamma = C_p/C_v
 
@@ -62,7 +62,14 @@ const_accel = -0.1
 
 jet_inject_radius = 0.05  # Jet injection radius
 jet_inject_height = 0.01  # Jet injection height
-jet_m_inject_rate = 0.005  # Jet mass injection rate
+jet_m_inject_rate = 0.005 # Jet mass injection rate
 jet_power = 0.03  # Jet power
-jet_ke_frac = 0.9  # Fraction of kinetic energy
+jet_ke_frac = 0.75  # Fraction of kinetic energy
 jet_q_frac = 0.1  # Fraction of thermal energy
+jet_b_frac = 0.15  # Fraction of magnetic energy
+
+b0 = 0.01
+mag_field_inject_type = loop
+mag_field_inject_l_scale = 0.02
+mag_field_inject_offset = 0.0
+mag_field_inject_thickness = 0.005
