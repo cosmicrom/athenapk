@@ -128,10 +128,10 @@ int main(int argc, char *argv[]) {
     pman.app_input->MeshProblemGenerator = jet::ProblemGenerator;
     Hydro::ProblemInitPackageData = jet::ProblemInitPackageData;
     pman.app_input->RegisterBoundaryCondition(
-        BF::inner_x2, "project_pressure_reflect",
+        BF::inner_x2, "project_pressure_reflecting",
         Hydro::BoundaryFunction::ProjectPressureReflect<X2DIR, BCSide::Inner>);
     pman.app_input->RegisterBoundaryCondition(
-        BF::outer_x2, "project_pressure_reflect",
+        BF::outer_x2, "project_pressure_reflecting",
         Hydro::BoundaryFunction::ProjectPressureReflect<X2DIR, BCSide::Outer>);
     pman.app_input->RegisterBoundaryCondition(
         BF::inner_x2, "project_pressure_outflow",
