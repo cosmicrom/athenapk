@@ -454,9 +454,9 @@ void ConstructMagInjectPotential(
           const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
           const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
           // Update potential
-          a1 = -sin_theta * a_theta;
+          a1 = sin_theta * a_theta;
           a2 = a_h;
-          a3 = cos_theta * a_theta;
+          a3 = -cos_theta * a_theta;
         }
         // Write final potentials to the A variable pack
         A(0, k, j, i) = a1;
@@ -520,9 +520,9 @@ Real CalculateFieldAmplitude(
           const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
           const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
           //
-          b1 = cos_theta * b_r - sin_theta * b_theta;
+          b1 = cos_theta * b_r + sin_theta * b_theta;
           b2 = b_h;
-          b3 = sin_theta * b_r + cos_theta * b_theta;
+          b3 = sin_theta * b_r - cos_theta * b_theta;
         }
 
         llinear_contrib += (cons(IB1, k, j, i) * b1 + cons(IB2, k, j, i) * b2 +
