@@ -656,6 +656,16 @@ void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) 
       // Calculate field amplitude based on target magnetic energy
       Real field_amp = CalculateFieldAmplitude(dt, cons_pack, index_ranges,
                                                jet_inject_struct, mag_inject_struct);
+      if (!std::isfinite(field_amp) || Kokkos::abs(field_amp) > 1.0e3) {
+        std::cout << "Jet magnetic injection field_amp diagnostic:"
+                  << " cycle=" << tm.ncycle << " time=" << tm.time << " dt=" << dt
+                  << " field_amp=" << field_amp
+                  << " b_frac=" << mag_inject_struct.b_frac
+                  << " power_density=" << jet_inject_struct.power_density
+                  << " volume=" << jet_inject_struct.volume
+                  << " l_scale=" << mag_inject_struct.l_scale
+                  << " alpha=" << mag_inject_struct.alpha << std::endl;
+      }
       // Calculate potential with new field amplitude
       ConstructMagInjectPotential(cons_pack, A_pack, index_ranges, mag_inject_struct,
                                   field_amp);
