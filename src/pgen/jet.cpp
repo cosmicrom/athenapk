@@ -42,10 +42,10 @@ std::unordered_map<std::string, RhoProfileMode> RhoProfileMap = {
     {"lin", RhoProfileMode::Linear},
     {"pow", RhoProfileMode::Power},
     {"expo", RhoProfileMode::Exponential}};
-// Define magnetic field injection type enum and map
-enum class MagFieldInjectType { Loop, Tower };
-std::unordered_map<std::string, MagFieldInjectType> MagFieldInjectTypeMap = {
-    {"loop", MagFieldInjectType::Loop}, {"tower", MagFieldInjectType::Tower}};
+// Define magnetic field injection config enum and map
+enum class MagFieldInjectConfig { Loop, Tower };
+std::unordered_map<std::string, MagFieldInjectConfig> MagFieldInjectConfigMap = {
+    {"loop", MagFieldInjectConfig::Loop}, {"tower", MagFieldInjectConfig::Tower}};
 
 // Define structs
 struct IndexRangeStruct {
@@ -84,10 +84,11 @@ struct HydroInjectStruct {
 
 struct MagInjectStruct {
   Real x2_min;
-  MagFieldInjectType type;
+  MagFieldInjectConfig config;
   Real l_scale;
   Real offset;
   Real thickness;
+  Real alpha;
   Real b_frac;
 };
 
@@ -95,7 +96,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   // Add parameters to the hydro package
   // Constant acceleration
   hydro_pkg->AddParam("const_accel", pin->GetReal("problem/jet", "const_accel"));
-  //
+  // X2 Minimum
   hydro_pkg->AddParam("x2_min", pin->GetReal("parthenon/mesh", "x2min"));
   // Direction of constant acceleration
   hydro_pkg->AddParam("const_accel_dir", X2DIR);
@@ -129,7 +130,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       "Input Invalid: Enabling tracer for jet requires hydro/nscalars >= 1");
   hydro_pkg->AddParam("enable_tracer", enable_tracer);
 
-  //
+  // If magnetic fields are enabled read in the relevant parameters
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     // Jet magnetic energy fraction
     const Real b_frac = pin->GetOrAddReal("problem/jet", "jet_b_frac", 0.0);
@@ -139,43 +140,58 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
                       "fractions must sum to 1.0");
     hydro_pkg->AddParam("jet_b_frac", b_frac);
 
-    //
+    // If the fraction of magnetic energy of jet power is greater than zero read in
+    // magnetic field injection parameters
     if (b_frac > 0.0) {
-      const Real mag_offset = pin->GetReal("problem/jet", "mag_field_inject_offset");
-      const Real mag_thickness =
-          pin->GetReal("problem/jet", "mag_field_inject_thickness");
+      // Field configuration
+      MagFieldInjectConfig mag_config = MagFieldInjectConfigMap.at(
+          pin->GetString("problem/jet", "mag_field_inject_config", {"loop", "tower"}));
+      hydro_pkg->AddParam("mag_field_inject_config", mag_config);
+      // L scale
       const Real mag_l_scale = pin->GetReal("problem/jet", "mag_field_inject_l_scale");
-      PARTHENON_REQUIRE(mag_offset >= 0.0, "Input Invalid: mag_field_inject_offset < 0");
-      PARTHENON_REQUIRE(mag_thickness > 0.0,
-                        "Input Invalid: mag_field_inject_thickness <= 0");
+      PARTHENON_REQUIRE(mag_l_scale > 0.0,
+                        "Input Invalid: mag_field_inject_l_scale <= 0");
+      hydro_pkg->AddParam("mag_field_inject_l_scale", mag_l_scale);
+      // Offset
+      const Real mag_offset =
+          pin->GetOrAddReal("problem/jet", "mag_field_inject_offset", 0.0);
+      if (mag_config == MagFieldInjectConfig::Tower) {
+        PARTHENON_REQUIRE(
+            mag_offset == 0.0,
+            "Input Invalid: mag_field_inject_offset must be 0 for tower configuration");
+      } else {
+        PARTHENON_REQUIRE(mag_offset >= 0.0,
+                          "Input Invalid: mag_field_inject_offset < 0");
+      }
+      hydro_pkg->AddParam("mag_field_inject_offset", mag_offset);
+      // Thickness
+      const Real mag_thickness =
+          pin->GetOrAddReal("problem/jet", "mag_field_inject_thickness", 0.0);
+      if (mag_config == MagFieldInjectConfig::Tower) {
+        PARTHENON_REQUIRE(mag_thickness == 0.0,
+                          "Input Invalid: mag_field_inject_thickness must be 0 for tower "
+                          "configuration");
+      } else {
+        PARTHENON_REQUIRE(mag_thickness > 0.0,
+                          "Input Invalid: mag_field_inject_thickness <= 0");
+      }
+      hydro_pkg->AddParam("mag_field_inject_thickness", mag_thickness);
+      // Check that offset and thickness fit in the input jet nozzle height
       PARTHENON_REQUIRE(
           mag_offset + mag_thickness <= jet_height,
           "Input Invalid: magnetic injection layer extends beyond jet nozzle");
-      PARTHENON_REQUIRE(mag_l_scale > 0.0,
-                        "Input Invalid: mag_field_inject_l_scale <= 0");
-      PARTHENON_REQUIRE(
-          pin->GetString("problem/jet", "mag_field_inject_type", {"loop", "tower"}) ==
-              "loop",
-          "Input Invalid: mag_field_inject_type=tower is not implemented for the Jet "
-          "problem. Use mag_field_inject_type=loop.");
-      //
+      // Alpha
       hydro_pkg->AddParam(
-          "mag_field_inject_type",
-          MagFieldInjectTypeMap.at(
-              pin->GetString("problem/jet", "mag_field_inject_type", {"loop", "tower"})));
-      //
-      hydro_pkg->AddParam("mag_field_inject_l_scale", mag_l_scale);
-      //
-      hydro_pkg->AddParam("mag_field_inject_offset", mag_offset);
-      //
-      hydro_pkg->AddParam("mag_field_inject_thickness", mag_thickness);
-      //
+          "mag_field_inject_alpha",
+          pin->GetOrAddReal("problem/jet", "mag_field_inject_alpha", 0.0));
+      // Potential vector
       parthenon::Metadata m({parthenon::Metadata::Cell, parthenon::Metadata::Derived,
                              parthenon::Metadata::OneCopy},
                             std::vector<int>({3}));
       hydro_pkg->AddField("mag_field_inject_A", m);
     }
-    //
+    // If magnetic field is not enabled insure that fractions of kinetic and thermal
+    // energy add up to 1.0
   } else {
     PARTHENON_REQUIRE(
         abs(ke_frac + q_frac - 1.0) < 1e-12,
@@ -415,7 +431,7 @@ void ConstructMagInjectPotential(
         Real a2 = 0.0;
         Real a3 = 0.0;
         // Update potential for loops
-        if (mag_inject_struct.type == MagFieldInjectType::Loop) {
+        if (mag_inject_struct.config == MagFieldInjectConfig::Loop) {
           // Check that current height is within inputs
           if (Kokkos::abs(h) >= mag_inject_struct.offset &&
               Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
@@ -423,6 +439,23 @@ void ConstructMagInjectPotential(
             a2 = field_amp * mag_inject_struct.l_scale *
                  Kokkos::exp(-SQR(r / mag_inject_struct.l_scale));
           }
+          // Update potential for tower
+        } else if (mag_inject_struct.config == MagFieldInjectConfig::Tower) {
+          //
+          const Real exp_r2_h2 = Kokkos::exp(-SQR(r / mag_inject_struct.l_scale) -
+                                             SQR(h / mag_inject_struct.l_scale));
+          // Calculate potential theta and height
+          const Real a_theta = field_amp * mag_inject_struct.l_scale *
+                               (r / mag_inject_struct.l_scale) * exp_r2_h2;
+          const Real a_h = field_amp * mag_inject_struct.l_scale *
+                           mag_inject_struct.alpha / 2.0 * exp_r2_h2;
+          // Determine sin and cosine of theta
+          const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
+          const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
+          // Update potential
+          a1 = -sin_theta * a_theta;
+          a2 = a_h;
+          a3 = cos_theta * a_theta;
         }
         // Write final potentials to the A variable pack
         A(0, k, j, i) = a1;
@@ -459,20 +492,38 @@ Real CalculateFieldAmplitude(
         const Real r2 = SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k));
         const Real h = coords.Xc<2>(j) - mag_inject_struct.x2_min;
         const Real cell_volume = coords.CellVolume(k, j, i);
-        //
+        // Initialize magnetic field components
         Real b1 = 0.0;
         Real b2 = 0.0;
         Real b3 = 0.0;
         //
-        // TODO: Add check for loop and path for tower
-        if (Kokkos::abs(h) >= mag_inject_struct.offset &&
-            Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
-          const Real exp_r2 = Kokkos::exp(-r2 / SQR(mag_inject_struct.l_scale));
-          b1 = 2.0 * coords.Xc<3>(k) / mag_inject_struct.l_scale * exp_r2;
-          b2 = 0.0;
-          b3 = -2.0 * coords.Xc<1>(i) / mag_inject_struct.l_scale * exp_r2;
+        if (mag_inject_struct.config == MagFieldInjectConfig::Loop) {
+          if (Kokkos::abs(h) >= mag_inject_struct.offset &&
+              Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
+            const Real exp_r2 = Kokkos::exp(-r2 / SQR(mag_inject_struct.l_scale));
+            b1 = 2.0 * coords.Xc<3>(k) / mag_inject_struct.l_scale * exp_r2;
+            b2 = 0.0;
+            b3 = -2.0 * coords.Xc<1>(i) / mag_inject_struct.l_scale * exp_r2;
+          }
+        } else if (mag_inject_struct.config == MagFieldInjectConfig::Tower) {
           //
+          const Real r = Kokkos::sqrt(r2);
+          const Real r_over_l = r / mag_inject_struct.l_scale;
+          const Real h_over_l = h / mag_inject_struct.l_scale;
+          const Real exp_r2_h2 = Kokkos::exp(-SQR(r_over_l) - SQR(h_over_l));
+          //
+          const Real b_r = 2.0 * h_over_l * r_over_l * exp_r2_h2;
+          const Real b_theta = mag_inject_struct.alpha * r_over_l * exp_r2_h2;
+          const Real b_h = 2.0 * (1.0 - SQR(r_over_l)) * exp_r2_h2;
+          //
+          const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
+          const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
+          //
+          b1 = cos_theta * b_r - sin_theta * b_theta;
+          b2 = b_h;
+          b3 = sin_theta * b_r + cos_theta * b_theta;
         }
+
         llinear_contrib += (cons(IB1, k, j, i) * b1 + cons(IB2, k, j, i) * b2 +
                             cons(IB3, k, j, i) * b3) *
                            cell_volume;
@@ -489,13 +540,10 @@ Real CalculateFieldAmplitude(
   quadratic_contrib = magnetic_contribs[1];
 #endif // MPI_PARALLEL
 
-  PARTHENON_REQUIRE(linear_contrib != 0.0 && quadratic_contrib != 0.0,
-                    "Jet magnetic injection linear and quadratic contributions are both "
-                    "zero");
   const Real disc =
       linear_contrib * linear_contrib + 4.0 * quadratic_contrib * mag_energy;
 
-  PARTHENON_REQUIRE(disc >= 0.0 || quadratic_contrib != 0.0,
+  PARTHENON_REQUIRE(disc >= 0.0 && quadratic_contrib != 0.0,
                     "Jet magnetic injection has no viable field amplitude.");
 
   return (-linear_contrib + Kokkos::sqrt(disc)) / (2.0 * quadratic_contrib);
@@ -582,11 +630,12 @@ void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) 
       const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &A_pack =
           md->PackVariables(std::vector<std::string>{"mag_field_inject_A"});
       mag_inject_struct.x2_min = hydro_pkg->Param<Real>("x2_min");
-      mag_inject_struct.type =
-          hydro_pkg->Param<MagFieldInjectType>("mag_field_inject_type");
+      mag_inject_struct.config =
+          hydro_pkg->Param<MagFieldInjectConfig>("mag_field_inject_config");
       mag_inject_struct.l_scale = hydro_pkg->Param<Real>("mag_field_inject_l_scale");
       mag_inject_struct.offset = hydro_pkg->Param<Real>("mag_field_inject_offset");
       mag_inject_struct.thickness = hydro_pkg->Param<Real>("mag_field_inject_thickness");
+      mag_inject_struct.alpha = hydro_pkg->Param<Real>("mag_field_inject_alpha");
 
       // Calculate field amplitude based on target magnetic energy
       Real field_amp = CalculateFieldAmplitude(dt, cons_pack, index_ranges,
