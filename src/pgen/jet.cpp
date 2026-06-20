@@ -11,6 +11,7 @@
 
 // General headers
 #include <cmath>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -542,6 +543,21 @@ Real CalculateFieldAmplitude(
 
   const Real disc =
       linear_contrib * linear_contrib + 4.0 * quadratic_contrib * mag_energy;
+
+  if (!(disc >= 0.0) || quadratic_contrib == 0.0) {
+    std::cout << "Jet magnetic injection diagnostic:"
+              << " mag_energy=" << mag_energy
+              << " linear_contrib=" << linear_contrib
+              << " quadratic_contrib=" << quadratic_contrib << " disc=" << disc
+              << " dt=" << dt << " b_frac=" << mag_inject_struct.b_frac
+              << " power_density=" << jet_inject_struct.power_density
+              << " volume=" << jet_inject_struct.volume
+              << " l_scale=" << mag_inject_struct.l_scale
+              << " alpha=" << mag_inject_struct.alpha << " config="
+              << (mag_inject_struct.config == MagFieldInjectConfig::Tower ? "tower"
+                                                                          : "loop")
+              << " num_blocks=" << cons_pack.GetDim(5) << std::endl;
+  }
 
   PARTHENON_REQUIRE(disc >= 0.0 && quadratic_contrib != 0.0,
                     "Jet magnetic injection has no viable field amplitude.");
