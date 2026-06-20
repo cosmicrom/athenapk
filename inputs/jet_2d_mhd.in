@@ -32,7 +32,7 @@ ox1_bc = outflow          # Outer-X1 boundary flag
 nx2    = 200               # Number of zones in X2-direction
 x2min  = 0              # Minimum value of X2
 x2max  = 1               # Maximum value of X2
-ix2_bc = project_pressure_reflect  # Inner-X2 boundary flag
+ix2_bc = project_pressure_reflecting  # Inner-X2 boundary flag
 ox2_bc = project_pressure_outflow  # Outer-X2 boundary flag
 
 nx3    = 1                 # Number of zones in X3-direction
