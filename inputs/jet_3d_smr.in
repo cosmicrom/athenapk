@@ -1,0 +1,94 @@
+<comment>
+problem = Jet
+
+<job>
+problem_id = jet
+
+<parthenon/output1>
+file_type = hst   # History data dump
+dt        = 0.01  # Time increment between outputs
+
+<parthenon/output2>
+file_type = hdf5  # Binary data dump
+variables = prim  # Variables to be output
+dt        = 0.1  # Time increment between outputs
+
+<parthenon/time>
+cfl        = 0.3     # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1      # Cycle limit
+tlim       = 20     # Time limit
+integrator = vl2     # Time integration algorithm
+ncycle_out = 10      # Interval for stdout summary info
+
+<parthenon/mesh>
+refinement = static
+nghost = 2                 # Number of ghost zones
+
+nx1    = 64               # Number of zones in X1-direction
+x1min  = -2       # Minimum value of X1
+x1max  = 2        # Maximum value of X1
+ix1_bc = outflow          # Inner-X1 boundary flag
+ox1_bc = outflow          # Outer-X1 boundary flag
+
+nx2    = 256               # Number of zones in X2-direction
+x2min  = 0              # Minimum value of X2
+x2max  = 8              # Maximum value of X2
+ix2_bc = project_pressure_reflecting  # Inner-X2 boundary flag
+ox2_bc = project_pressure_outflow  # Outer-X2 boundary flag
+
+nx3    = 64                 # Number of zones in X3-direction
+x3min  = -2              # Minimum value of X3
+x3max  = 2               # Maximum value of X3
+ix3_bc = outflow          # Inner-X3 boundary flag
+ox3_bc = outflow          # Outer-X3 boundary flag
+
+<parthenon/static_refinement0>
+x1min = -1
+x1max = 1
+x2min = 0
+x2max = 7
+x3min = -1
+x3max = 1
+level = 1
+
+<parthenon/static_refinement1>
+x1min = -0.5
+x1max = 0.5
+x2min = 0
+x2max = 6
+x3min = -0.5
+x3max = 0.5
+level = 2
+
+<parthenon/meshblock>
+nx1    = 16
+nx2    = 32
+nx3    = 16
+
+<hydro>
+fluid          = euler
+eos            = adiabatic
+riemann        = hllc
+reconstruction = plm
+gamma          = 1.4  # gamma = C_p/C_v
+nscalars = 1
+
+<units>
+code_length_cgs = 1
+code_mass_cgs = 1
+code_time_cgs = 1
+
+<problem/jet>
+rho_0 = 2.0
+rho_ref = 1.0
+r_ref = 0.3
+rho_prof_mode = expo  # Density profile (const, lin, pow, or expo)
+const_accel = -0.1
+
+jet_inject_radius = 0.05  # Jet injection radius
+jet_inject_height = 0.01  # Jet injection height
+jet_m_inject_rate = 0.005  # Jet mass injection rate
+jet_power = 0.03  # Jet power
+jet_ke_frac = 0.9  # Fraction of kinetic energy
+jet_q_frac = 0.1  # Fraction of thermal energy
+enable_tracer = true
