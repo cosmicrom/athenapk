@@ -25,39 +25,41 @@ refinement = static
 nghost = 2                 # Number of ghost zones
 
 nx1    = 64               # Number of zones in X1-direction
-x1min  = -2       # Minimum value of X1
-x1max  = 2        # Maximum value of X1
+x1min  = -0.5             # Minimum value of X1
+x1max  = 0.5              # Maximum value of X1
 ix1_bc = outflow          # Inner-X1 boundary flag
 ox1_bc = outflow          # Outer-X1 boundary flag
 
-nx2    = 256               # Number of zones in X2-direction
-x2min  = 0              # Minimum value of X2
-x2max  = 8              # Maximum value of X2
+nx2    = 256              # Number of zones in X2-direction
+x2min  = 0                # Minimum value of X2
+x2max  = 4                # Maximum value of X2
 ix2_bc = project_pressure_reflecting  # Inner-X2 boundary flag
-ox2_bc = project_pressure_outflow  # Outer-X2 boundary flag
+ox2_bc = project_pressure_outflow     # Outer-X2 boundary flag
 
-nx3    = 64                 # Number of zones in X3-direction
-x3min  = -2              # Minimum value of X3
-x3max  = 2               # Maximum value of X3
+nx3    = 64               # Number of zones in X3-direction
+x3min  = -0.5             # Minimum value of X3
+x3max  = 0.5              # Maximum value of X3
 ix3_bc = outflow          # Inner-X3 boundary flag
 ox3_bc = outflow          # Outer-X3 boundary flag
 
+# Refine the cocoon and lower jet.
 <parthenon/static_refinement0>
-x1min = -1
-x1max = 1
+x1min = -0.25
+x1max = 0.25
 x2min = 0
-x2max = 7
-x3min = -1
-x3max = 1
+x2max = 2
+x3min = -0.25
+x3max = 0.25
 level = 1
 
+# Refine the injection region and central jet channel.
 <parthenon/static_refinement1>
-x1min = -0.5
-x1max = 0.5
+x1min = -0.125
+x1max = 0.125
 x2min = 0
-x2max = 6
-x3min = -0.5
-x3max = 0.5
+x2max = 1
+x3min = -0.125
+x3max = 0.125
 level = 2
 
 <parthenon/meshblock>
@@ -81,8 +83,8 @@ code_time_cgs = 1
 <problem/jet>
 rho_0 = 2.0
 rho_ref = 1.0
-r_ref = 0.3
-rho_prof_mode = expo  # Density profile (const, lin, pow, or expo)
+r_ref = 4.0  # For lin mode, density reaches rho_ref at the top of the domain
+rho_prof_mode = lin  # Density profile (const, lin, pow, or expo)
 const_accel = -0.1
 
 jet_inject_radius = 0.05  # Jet injection radius
