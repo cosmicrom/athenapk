@@ -36,12 +36,13 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
 // Define density profile modes enum and map
-enum class RhoProfileMode { Constant, Linear, Power, Exponential };
+enum class RhoProfileMode { Constant, Linear, Power, Exponential, Cylinder };
 std::unordered_map<std::string, RhoProfileMode> RhoProfileMap = {
     {"const", RhoProfileMode::Constant},
     {"lin", RhoProfileMode::Linear},
     {"pow", RhoProfileMode::Power},
-    {"expo", RhoProfileMode::Exponential}};
+    {"expo", RhoProfileMode::Exponential},
+    {"cyl", RhoProfileMode::Cylinder}};
 // Define magnetic field injection config enum and map
 enum class MagFieldInjectConfig { Loop, Tower };
 std::unordered_map<std::string, MagFieldInjectConfig> MagFieldInjectConfigMap = {
@@ -59,11 +60,12 @@ struct JetInitStruct {
   Real const_accel;
   Real gamma;
   Real x2_min;
+  RhoProfileMode rho_prof_mode;
   Real rho_0;
   Real rho_ref;
   Real r_ref;
-  Real rho_delta;
-  RhoProfileMode rho_prof_mode;
+  Real rho_min;
+  Real rho_max;
   bool enable_tracer;
   int nhydro;
   Real b0;
@@ -85,6 +87,7 @@ struct HydroInjectStruct {
 struct MagInjectStruct {
   Real x2_min;
   MagFieldInjectConfig config;
+  Real r_max;
   Real l_scale;
   Real offset;
   Real thickness;
@@ -147,10 +150,17 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       MagFieldInjectConfig mag_config = MagFieldInjectConfigMap.at(
           pin->GetString("problem/jet", "mag_field_inject_config", {"loop", "tower"}));
       hydro_pkg->AddParam("mag_field_inject_config", mag_config);
+      // Max radius
+      const Real mag_r_max = pin->GetReal("problem/jet", "mag_field_inject_r_max");
+      PARTHENON_REQUIRE(mag_r_max > 0.0, "Input Invalid: mag_field_inject_r_max <= 0");
+      hydro_pkg->AddParam("mag_field_inject_r_max", mag_r_max);
       // L scale
       const Real mag_l_scale = pin->GetReal("problem/jet", "mag_field_inject_l_scale");
       PARTHENON_REQUIRE(mag_l_scale > 0.0,
                         "Input Invalid: mag_field_inject_l_scale <= 0");
+      PARTHENON_REQUIRE(mag_r_max >= 3.0 * mag_l_scale,
+                        "Input Invalid: mag_field_inject_r_max must be at least three "
+                        "times mag_field_inject_l_scale");
       hydro_pkg->AddParam("mag_field_inject_l_scale", mag_l_scale);
       // Offset
       const Real mag_offset =
@@ -210,7 +220,7 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
   // Calculate relevant constant for input density profile
   Real c;
   if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
-    c = jet_init_struct.rho_delta / jet_init_struct.r_ref;
+    c = (jet_init_struct.rho_ref - jet_init_struct.rho_0) / jet_init_struct.r_ref;
   } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Power) {
     c = -log(jet_init_struct.rho_ref / jet_init_struct.rho_0) / log(2.0);
   } else {
@@ -230,25 +240,31 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
         // Calculate cell offset average
         const Real offset_avg = (bottom_offset + top_offset) / 2.0;
 
-        // Create lambda function for density profile based on input profile mode
-        auto rho_profile = [=](const Real r) {
-          if (jet_init_struct.rho_prof_mode == RhoProfileMode::Constant) {
-            return jet_init_struct.rho_0;
-          } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
-            return jet_init_struct.rho_0 + c * r;
-          } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Power) {
-            return jet_init_struct.rho_0 * pow(1.0 + r / jet_init_struct.r_ref, -c);
-          } else {
-            return jet_init_struct.rho_0 * exp(c * r);
-          }
-        };
-        // Initialize 7-point Gaussian Quadrature class
-        parthenon::math::quadrature::gauss<Real, 7> quad;
-        // Solve for density and pressure using 7-point Gaussian Quadrature
-        const Real rho = quad.integrate(rho_profile, bottom_offset, top_offset) /
-                         (top_offset - bottom_offset);
-        const Real pressure = p0 + jet_init_struct.const_accel *
-                                       quad.integrate(rho_profile, 0.0, offset_avg);
+        Real rho;
+        Real pressure;
+        if (jet_init_struct.rho_prof_mode == RhoProfileMode::Cylinder) {
+
+        } else {
+          // Create lambda function for density profile based on input profile mode
+          auto rho_profile = [=](const Real r) {
+            if (jet_init_struct.rho_prof_mode == RhoProfileMode::Constant) {
+              return jet_init_struct.rho_0;
+            } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
+              return jet_init_struct.rho_0 + c * r;
+            } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Power) {
+              return jet_init_struct.rho_0 * pow(1.0 + r / jet_init_struct.r_ref, -c);
+            } else {
+              return jet_init_struct.rho_0 * exp(c * r);
+            }
+          };
+          // Initialize 7-point Gaussian Quadrature class
+          parthenon::math::quadrature::gauss<Real, 7> quad;
+          // Solve for density and pressure using 7-point Gaussian Quadrature
+          rho = quad.integrate(rho_profile, bottom_offset, top_offset) /
+                (top_offset - bottom_offset);
+          pressure = p0 + jet_init_struct.const_accel *
+                              quad.integrate(rho_profile, 0.0, offset_avg);
+        }
         // Check that real density and pressure were calculated
         PARTHENON_REQUIRE(rho > 0.0, "Jet initialization produced negative density");
         PARTHENON_REQUIRE(pressure > 0.0,
@@ -340,19 +356,26 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     jet_init_struct.enable_tracer = hydro_pkg->Param<bool>("enable_tracer");
     jet_init_struct.nhydro = hydro_pkg->Param<int>("nhydro");
 
-    // Read and check in density data
-    jet_init_struct.rho_0 = pin->GetReal("problem/jet", "rho_0");
-    PARTHENON_REQUIRE(jet_init_struct.rho_0 > 0.0, "Input Invalid: rho_0 <= 0");
-    jet_init_struct.rho_ref = pin->GetReal("problem/jet", "rho_ref");
-    PARTHENON_REQUIRE(jet_init_struct.rho_ref > 0.0, "Input Invalid: rho_ref <= 0");
-    jet_init_struct.r_ref = pin->GetReal("problem/jet", "r_ref");
-    PARTHENON_REQUIRE(jet_init_struct.r_ref > 0.0, "Input Invalid: r_ref <= 0");
-    jet_init_struct.rho_delta = jet_init_struct.rho_ref - jet_init_struct.rho_0;
+    // Read in density profile mode and convert to enum
+    jet_init_struct.rho_prof_mode = RhoProfileMap.at(pin->GetString(
+        "problem/jet", "rho_prof_mode", {"const", "lin", "pow", "expo", "cyl"}));
 
-    // Read in density profile mode and convert to enum. This is needed to safely pass
-    // into Kokkos lambda
-    jet_init_struct.rho_prof_mode = RhoProfileMap.at(
-        pin->GetString("problem/jet", "rho_prof_mode", {"const", "lin", "pow", "expo"}));
+    // Read and check in density data depending on profile
+    if (jet_init_struct.rho_prof_mode != RhoProfileMode::Cylinder) {
+      jet_init_struct.rho_0 = pin->GetReal("problem/jet", "rho_0");
+      PARTHENON_REQUIRE(jet_init_struct.rho_0 > 0.0, "Input Invalid: rho_0 <= 0");
+      if (jet_init_struct.rho_prof_mode != RhoProfileMode::Constant) {
+        jet_init_struct.rho_ref = pin->GetReal("problem/jet", "rho_ref");
+        PARTHENON_REQUIRE(jet_init_struct.rho_ref > 0.0, "Input Invalid: rho_ref <= 0");
+        jet_init_struct.r_ref = pin->GetReal("problem/jet", "r_ref");
+        PARTHENON_REQUIRE(jet_init_struct.r_ref > 0.0, "Input Invalid: r_ref <= 0");
+      }
+    } else {
+      jet_init_struct.rho_min = pin->GetReal("problem/jet", "rho_min");
+      PARTHENON_REQUIRE(jet_init_struct.rho_min > 0.0, "Input Invalid: rho_min <= 0");
+      jet_init_struct.rho_max = pin->GetReal("problem/jet", "rho_max");
+      PARTHENON_REQUIRE(jet_init_struct.rho_max > 0.0, "Input Invalid: rho_max <= 0");
+    }
 
     // Read magnetic field information if enabled
     if (jet_init_struct.fluid == Fluid::glmmhd) {
@@ -398,11 +421,22 @@ void HydroInject(
       });
 }
 
+KOKKOS_INLINE_FUNCTION
+void CurlMagInjectPotential(parthenon::VariablePack<Real> &A,
+                            const parthenon::Coordinates_t &coords, const int k,
+                            const int j, const int i, Real &b1, Real &b2, Real &b3) {
+  b1 = (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+       (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+  b2 = (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+       (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+  b3 = (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+       (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+}
+
 void ConstructMagInjectPotential(
     const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &cons_pack,
     const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &A_pack,
-    const IndexRangeStruct &index_ranges, const MagInjectStruct &mag_inject_struct,
-    const Real &field_amp) {
+    const IndexRangeStruct &index_ranges, const MagInjectStruct &mag_inject_struct) {
   // Expand index ranges by one in all directions
   IndexRange a_ib = index_ranges.ib;
   a_ib.s -= 1;
@@ -435,9 +469,19 @@ void ConstructMagInjectPotential(
           // Check that current height is within inputs
           if (Kokkos::abs(h) >= mag_inject_struct.offset &&
               Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
+            // Use 5th order Smoothstep function to radially limit field potential
+            Real r_limiter;
+            if (r > mag_inject_struct.r_max) {
+              r_limiter = 0;
+            } else {
+              const Real r_ratio = r / mag_inject_struct.r_max;
+              r_limiter = 1 - 6 * Kokkos::pow(r_ratio, 5) + 15 * Kokkos::pow(r_ratio, 4) -
+                          10 * Kokkos::pow(r_ratio, 3);
+            }
+
             // Update potential along the axis of the jet (x2)
-            a2 = field_amp * mag_inject_struct.l_scale *
-                 Kokkos::exp(-SQR(r / mag_inject_struct.l_scale));
+            a2 = mag_inject_struct.l_scale *
+                 Kokkos::exp(-SQR(r / mag_inject_struct.l_scale)) * r_limiter;
           }
           // Update potential for tower
         } else if (mag_inject_struct.config == MagFieldInjectConfig::Tower) {
@@ -445,10 +489,10 @@ void ConstructMagInjectPotential(
           const Real exp_r2_h2 = Kokkos::exp(-SQR(r / mag_inject_struct.l_scale) -
                                              SQR(h / mag_inject_struct.l_scale));
           // Calculate potential theta and height
-          const Real a_theta = field_amp * mag_inject_struct.l_scale *
-                               (r / mag_inject_struct.l_scale) * exp_r2_h2;
-          const Real a_h = field_amp * mag_inject_struct.l_scale *
-                           mag_inject_struct.alpha / 2.0 * exp_r2_h2;
+          const Real a_theta =
+              mag_inject_struct.l_scale * (r / mag_inject_struct.l_scale) * exp_r2_h2;
+          const Real a_h =
+              mag_inject_struct.l_scale * mag_inject_struct.alpha / 2.0 * exp_r2_h2;
           // Determine sin and cosine of theta
           const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
           const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
@@ -467,6 +511,7 @@ void ConstructMagInjectPotential(
 Real CalculateFieldAmplitude(
     const Real &dt,
     const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &cons_pack,
+    const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &A_pack,
     const IndexRangeStruct &index_ranges, const HydroInjectStruct &jet_inject_struct,
     const MagInjectStruct &mag_inject_struct) {
   //
@@ -487,42 +532,11 @@ Real CalculateFieldAmplitude(
                     Real &llinear_contrib, Real &lquadratic_contrib) {
         //
         parthenon::VariablePack<Real> &cons = cons_pack(b);
+        parthenon::VariablePack<Real> &A = A_pack(b);
         parthenon::Coordinates_t coords = cons_pack.GetCoords(b);
-        //
-        const Real r2 = SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k));
-        const Real h = coords.Xc<2>(j) - mag_inject_struct.x2_min;
         const Real cell_volume = coords.CellVolume(k, j, i);
-        // Initialize magnetic field components
-        Real b1 = 0.0;
-        Real b2 = 0.0;
-        Real b3 = 0.0;
-        //
-        if (mag_inject_struct.config == MagFieldInjectConfig::Loop) {
-          if (Kokkos::abs(h) >= mag_inject_struct.offset &&
-              Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
-            const Real exp_r2 = Kokkos::exp(-r2 / SQR(mag_inject_struct.l_scale));
-            b1 = 2.0 * coords.Xc<3>(k) / mag_inject_struct.l_scale * exp_r2;
-            b2 = 0.0;
-            b3 = -2.0 * coords.Xc<1>(i) / mag_inject_struct.l_scale * exp_r2;
-          }
-        } else if (mag_inject_struct.config == MagFieldInjectConfig::Tower) {
-          //
-          const Real r = Kokkos::sqrt(r2);
-          const Real r_over_l = r / mag_inject_struct.l_scale;
-          const Real h_over_l = h / mag_inject_struct.l_scale;
-          const Real exp_r2_h2 = Kokkos::exp(-SQR(r_over_l) - SQR(h_over_l));
-          //
-          const Real b_r = 2.0 * h_over_l * r_over_l * exp_r2_h2;
-          const Real b_theta = mag_inject_struct.alpha * r_over_l * exp_r2_h2;
-          const Real b_h = 2.0 * (1.0 - SQR(r_over_l)) * exp_r2_h2;
-          //
-          const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
-          const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
-          //
-          b1 = cos_theta * b_r + sin_theta * b_theta;
-          b2 = b_h;
-          b3 = sin_theta * b_r - cos_theta * b_theta;
-        }
+        Real b1, b2, b3;
+        CurlMagInjectPotential(A, coords, k, j, i, b1, b2, b3);
 
         llinear_contrib += (cons(IB1, k, j, i) * b1 + cons(IB2, k, j, i) * b2 +
                             cons(IB3, k, j, i) * b3) *
@@ -552,7 +566,7 @@ Real CalculateFieldAmplitude(
 void ApplyMagInjectPotential(
     const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &cons_pack,
     const parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>> &A_pack,
-    const IndexRangeStruct &index_ranges) {
+    const IndexRangeStruct &index_ranges, const Real &field_amp) {
   // Take the curl of the potential and apply the new magnetic field
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "JetDriver::ApplyMagInjectPotential",
@@ -565,13 +579,12 @@ void ApplyMagInjectPotential(
         parthenon::VariablePack<Real> &A = A_pack(b);
         parthenon::Coordinates_t coords = cons.GetCoords();
 
-        // Curl potential into magnetic field
-        const Real b1 = (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
-                        (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
-        const Real b2 = (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
-                        (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
-        const Real b3 = (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
-                        (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+        // Curl the unit potential and scale it to the target magnetic energy
+        Real b1, b2, b3;
+        CurlMagInjectPotential(A, coords, k, j, i, b1, b2, b3);
+        b1 *= field_amp;
+        b2 *= field_amp;
+        b3 *= field_amp;
 
         // Add magnetic energy density to overall energy density
         cons(IEN, k, j, i) += cons(IB1, k, j, i) * b1 + cons(IB2, k, j, i) * b2 +
@@ -632,19 +645,18 @@ void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) 
       mag_inject_struct.x2_min = hydro_pkg->Param<Real>("x2_min");
       mag_inject_struct.config =
           hydro_pkg->Param<MagFieldInjectConfig>("mag_field_inject_config");
+      mag_inject_struct.r_max = hydro_pkg->Param<Real>("mag_field_inject_r_max");
       mag_inject_struct.l_scale = hydro_pkg->Param<Real>("mag_field_inject_l_scale");
       mag_inject_struct.offset = hydro_pkg->Param<Real>("mag_field_inject_offset");
       mag_inject_struct.thickness = hydro_pkg->Param<Real>("mag_field_inject_thickness");
       mag_inject_struct.alpha = hydro_pkg->Param<Real>("mag_field_inject_alpha");
 
-      // Calculate field amplitude based on target magnetic energy
-      Real field_amp = CalculateFieldAmplitude(dt, cons_pack, index_ranges,
-                                               jet_inject_struct, mag_inject_struct);
-      // Calculate potential with new field amplitude
-      ConstructMagInjectPotential(cons_pack, A_pack, index_ranges, mag_inject_struct,
-                                  field_amp);
-      // Apply potential to magnetic field
-      ApplyMagInjectPotential(cons_pack, A_pack, index_ranges);
+      // Construct a unit potential and calculate its amplitude from the resulting curl
+      ConstructMagInjectPotential(cons_pack, A_pack, index_ranges, mag_inject_struct);
+      const Real field_amp = CalculateFieldAmplitude(
+          dt, cons_pack, A_pack, index_ranges, jet_inject_struct, mag_inject_struct);
+      // Apply the scaled curl of the potential to the magnetic field
+      ApplyMagInjectPotential(cons_pack, A_pack, index_ranges, field_amp);
     }
   }
 }

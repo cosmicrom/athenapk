@@ -70,6 +70,7 @@ jet_b_frac = 0.15  # Fraction of magnetic energy
 
 b0 = 0.01
 mag_field_inject_config = loop
+mag_field_inject_r_max = 0.2
 mag_field_inject_l_scale = 0.02
 mag_field_inject_offset = 0.0
 mag_field_inject_thickness = 0.005
