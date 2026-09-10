@@ -471,7 +471,7 @@ void ConstructMagInjectPotential(
               Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
             // Use 5th order Smoothstep function to radially limit field potential
             Real r_limiter;
-            if (r > mag_inject_struct.r_max) {
+            if (r >= mag_inject_struct.r_max) {
               r_limiter = 0;
             } else {
               const Real r_ratio = r / mag_inject_struct.r_max;
