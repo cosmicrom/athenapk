@@ -63,7 +63,7 @@ eos            = adiabatic
 riemann        = hlld
 reconstruction = plm
 gamma          = 1.6666666667  # Monatomic ideal gas
-pfloor = 1e-5
+pfloor = 5.859375e-10  # 1e-4 of initial pressure
 nscalars = 2  # Jet tracer, cylinder tracer
 
 <units>
