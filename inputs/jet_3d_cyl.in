@@ -16,7 +16,7 @@ dt        = 2.0   # ns
 <parthenon/time>
 cfl        = 0.3     # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1      # Cycle limit
-tlim       = 100.0  # ns
+tlim       = 200.0  # ns
 integrator = vl2     # Time integration algorithm
 ncycle_out = 10      # Interval for stdout summary info
 
@@ -63,7 +63,7 @@ eos            = adiabatic
 riemann        = hlld
 reconstruction = plm
 gamma          = 1.6666666667  # Monatomic ideal gas
-pfloor = 5.859375e-10  # 1e-4 of initial pressure
+pfloor = 8.266165e-11  # 1e-4 of initial pressure
 nscalars = 2  # Jet tracer, cylinder tracer
 
 <units>
@@ -77,7 +77,7 @@ cyl_radius = 0.8                 # cm
 cyl_height = 3.5                 # cm
 rho_low = 1.0e-5                 # g/cm^3
 rho_high = 1.0e-2                # g/cm^3
-cyl_pressure = 5.859375e-6       # 5.86 Mbar
+cyl_pressure = 8.266165e-7       # 0.827 Mbar
 
 const_accel = -9.80665e-16        # -980.665 cm/s^2 in -X2
 
