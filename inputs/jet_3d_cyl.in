@@ -24,21 +24,21 @@ ncycle_out = 10      # Interval for stdout summary info
 refinement = static
 nghost = 2                 # Number of ghost zones
 
-nx1    = 72                # Number of base-level zones in X1-direction
-x1min  = -1.5              # cm
-x1max  = 1.5               # cm
+nx1    = 120               # Number of base-level zones in X1-direction
+x1min  = -2.5              # cm
+x1max  = 2.5               # cm
 ix1_bc = outflow          # Inner-X1 boundary flag
 ox1_bc = outflow          # Outer-X1 boundary flag
 
-nx2    = 128               # Number of base-level zones in X2-direction
+nx2    = 192               # Number of base-level zones in X2-direction
 x2min  = 0                 # Minimum value of X2
-x2max  = 4.0               # cm
+x2max  = 6.0               # cm
 ix2_bc = project_pressure_reflecting  # Inner-X2 boundary flag
 ox2_bc = project_pressure_outflow  # Outer-X2 boundary flag
 
-nx3    = 72                # Number of base-level zones in X3-direction
-x3min  = -1.5              # cm
-x3max  = 1.5               # cm
+nx3    = 120               # Number of base-level zones in X3-direction
+x3min  = -2.5              # cm
+x3max  = 2.5               # cm
 ix3_bc = outflow          # Inner-X3 boundary flag
 ox3_bc = outflow          # Outer-X3 boundary flag
 
@@ -91,7 +91,7 @@ jet_b_frac = 0.42025084
 
 b0 = 0.0
 mag_field_inject_config = loop
-mag_field_inject_r_max = 0.6       # cm
-mag_field_inject_l_scale = 0.06    # cm
+mag_field_inject_r_max = 0.9       # cm
+mag_field_inject_l_scale = 0.28    # cm
 mag_field_inject_offset = 0.0      # cm
 mag_field_inject_thickness = 0.015 # cm
