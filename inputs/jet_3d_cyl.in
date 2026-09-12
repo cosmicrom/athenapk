@@ -1,0 +1,96 @@
+<comment>
+problem = Jet
+
+<job>
+problem_id = jet
+
+<parthenon/output1>
+file_type = hst   # History data dump
+dt        = 4.8  # ns
+
+<parthenon/output2>
+file_type = hdf5  # Binary data dump
+variables = prim  # Variables to be output
+dt        = 5.0  # ns
+
+<parthenon/time>
+cfl        = 0.3     # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1      # Cycle limit
+tlim       = 250.0  # ns
+integrator = vl2     # Time integration algorithm
+ncycle_out = 10      # Interval for stdout summary info
+
+<parthenon/mesh>
+refinement = static
+nghost = 2                 # Number of ghost zones
+
+nx1    = 72                # Number of base-level zones in X1-direction
+x1min  = -1.5              # cm
+x1max  = 1.5               # cm
+ix1_bc = outflow          # Inner-X1 boundary flag
+ox1_bc = outflow          # Outer-X1 boundary flag
+
+nx2    = 128               # Number of base-level zones in X2-direction
+x2min  = 0                 # Minimum value of X2
+x2max  = 4.0               # cm
+ix2_bc = project_pressure_reflecting  # Inner-X2 boundary flag
+ox2_bc = project_pressure_outflow  # Outer-X2 boundary flag
+
+nx3    = 72                # Number of base-level zones in X3-direction
+x3min  = -1.5              # cm
+x3max  = 1.5               # cm
+ix3_bc = outflow          # Inner-X3 boundary flag
+ox3_bc = outflow          # Outer-X3 boundary flag
+
+# Refine the cylindrical foam's bounding box by a factor of two.
+<parthenon/static_refinement0>
+x1min = -0.8               # cm
+x1max = 0.8                # cm
+x2min = 0.0
+x2max = 3.5                # cm
+x3min = -0.8               # cm
+x3max = 0.8                # cm
+level = 1
+
+<parthenon/meshblock>
+nx1 = 12
+nx2 = 32
+nx3 = 12
+
+<hydro>
+fluid          = glmmhd
+eos            = adiabatic
+riemann        = hlld
+reconstruction = plm
+gamma          = 1.6666666667  # Monatomic ideal gas
+nscalars       = 2             # Jet tracer, cylinder tracer
+
+<units>
+code_length_cgs = 1.0
+code_mass_cgs = 1.0
+code_time_cgs = 1.0e-9  # 1 ns
+
+<problem/jet>
+rho_prof_mode = cyl
+cyl_radius = 0.8                 # cm
+cyl_height = 3.5                 # cm
+rho_low = 1.0e-5                 # g/cm^3
+rho_high = 1.0e-2                # g/cm^3
+cyl_pressure = 5.859375e-6       # 5.86 Mbar
+
+const_accel = -9.80665e-16        # -980.665 cm/s^2 in -X2
+
+jet_inject_radius = 0.355         # cm
+jet_inject_height = 0.03          # cm
+jet_m_inject_rate = 9.897980354216342e-4  # 9.89798e5 g/s
+jet_power = 1.453861331157028e-7          # 1.45386e20 erg/s
+jet_ke_frac = 0.34040318
+jet_q_frac = 0.23934598
+jet_b_frac = 0.42025084
+
+b0 = 0.0
+mag_field_inject_config = loop
+mag_field_inject_r_max = 0.6       # cm
+mag_field_inject_l_scale = 0.06    # cm
+mag_field_inject_offset = 0.0      # cm
+mag_field_inject_thickness = 0.015 # cm

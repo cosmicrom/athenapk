@@ -55,6 +55,14 @@ struct IndexRangeStruct {
   IndexRange kb;
 };
 
+struct CylinderParamsStruct {
+  Real radius;
+  Real height;
+  Real rho_low;
+  Real rho_high;
+  Real pressure;
+};
+
 struct JetInitStruct {
   Fluid fluid;
   Real const_accel;
@@ -64,10 +72,9 @@ struct JetInitStruct {
   Real rho_0;
   Real rho_ref;
   Real r_ref;
-  Real rho_min;
-  Real rho_max;
-  bool enable_tracer;
+  CylinderParamsStruct cyl;
   int nhydro;
+  int nscalars;
   Real b0;
 };
 
@@ -80,7 +87,6 @@ struct HydroInjectStruct {
   Real q_frac;
   Real rho_rate;
   Real power_density;
-  bool enable_tracer;
   int nhydro;
 };
 
@@ -126,12 +132,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   const Real q_frac = pin->GetReal("problem/jet", "jet_q_frac");
   PARTHENON_REQUIRE(q_frac >= 0.0, "Input Invalid: jet_q_frac < 0");
   hydro_pkg->AddParam("jet_q_frac", q_frac);
-  // Enable tracer flag
-  const bool enable_tracer = pin->GetOrAddBoolean("problem/jet", "enable_tracer", false);
-  PARTHENON_REQUIRE(
-      !enable_tracer || hydro_pkg->Param<int>("nscalars") >= 1,
-      "Input Invalid: Enabling tracer for jet requires hydro/nscalars >= 1");
-  hydro_pkg->AddParam("enable_tracer", enable_tracer);
+  PARTHENON_REQUIRE(hydro_pkg->Param<int>("nscalars") >= 1,
+                    "Input Invalid: Jet problem requires hydro/nscalars >= 1");
 
   // If magnetic fields are enabled read in the relevant parameters
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
@@ -217,15 +219,6 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
   const Real p0 = 1.0 / jet_init_struct.gamma;
   // Calculate gamma minus one
   const Real gm1 = jet_init_struct.gamma - 1.0;
-  // Calculate relevant constant for input density profile
-  Real c;
-  if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
-    c = (jet_init_struct.rho_ref - jet_init_struct.rho_0) / jet_init_struct.r_ref;
-  } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Power) {
-    c = -log(jet_init_struct.rho_ref / jet_init_struct.rho_0) / log(2.0);
-  } else {
-    c = log(jet_init_struct.rho_ref / jet_init_struct.rho_0) / jet_init_struct.r_ref;
-  }
 
   // Set initial conditions
   pmb->par_for(
@@ -242,18 +235,36 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
 
         Real rho;
         Real pressure;
+        bool inside_cylinder = false;
         if (jet_init_struct.rho_prof_mode == RhoProfileMode::Cylinder) {
+          // Check if inside the desired cylinder volume
+          inside_cylinder =
+              Kokkos::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k))) <
+                  jet_init_struct.cyl.radius &&
+              coords.Xc<2>(j) < jet_init_struct.cyl.height;
+          if (inside_cylinder) {
+            rho = jet_init_struct.cyl.rho_high;
 
+          } else {
+            rho = jet_init_struct.cyl.rho_low;
+          }
+          pressure = jet_init_struct.cyl.pressure +
+                     jet_init_struct.const_accel * jet_init_struct.cyl.rho_low * offset_avg;
         } else {
           // Create lambda function for density profile based on input profile mode
           auto rho_profile = [=](const Real r) {
             if (jet_init_struct.rho_prof_mode == RhoProfileMode::Constant) {
               return jet_init_struct.rho_0;
             } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
+              Real c = (jet_init_struct.rho_ref - jet_init_struct.rho_0) /
+                       jet_init_struct.r_ref;
               return jet_init_struct.rho_0 + c * r;
             } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Power) {
+              Real c = -log(jet_init_struct.rho_ref / jet_init_struct.rho_0) / log(2.0);
               return jet_init_struct.rho_0 * pow(1.0 + r / jet_init_struct.r_ref, -c);
             } else {
+              Real c = log(jet_init_struct.rho_ref / jet_init_struct.rho_0) /
+                       jet_init_struct.r_ref;
               return jet_init_struct.rho_0 * exp(c * r);
             }
           };
@@ -277,9 +288,12 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = pressure / gm1;
 
-        // Initialize tracer if enabled
-        if (jet_init_struct.enable_tracer) {
-          u(jet_init_struct.nhydro, k, j, i) = 0.0;
+        // Scalar 0 tracks injected jet mass; scalar 1 tracks initial cylinder mass.
+        for (int n = 0; n < jet_init_struct.nscalars; ++n) {
+          u(jet_init_struct.nhydro + n, k, j, i) = 0.0;
+        }
+        if (inside_cylinder) {
+          u(jet_init_struct.nhydro + 1, k, j, i) = rho;
         }
 
         // Set magnetic fields if enabled
@@ -353,8 +367,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     jet_init_struct.const_accel = hydro_pkg->Param<Real>("const_accel");
     jet_init_struct.gamma = pin->GetReal("hydro", "gamma");
     jet_init_struct.x2_min = hydro_pkg->Param<Real>("x2_min");
-    jet_init_struct.enable_tracer = hydro_pkg->Param<bool>("enable_tracer");
     jet_init_struct.nhydro = hydro_pkg->Param<int>("nhydro");
+    jet_init_struct.nscalars = hydro_pkg->Param<int>("nscalars");
 
     // Read in density profile mode and convert to enum
     jet_init_struct.rho_prof_mode = RhoProfileMap.at(pin->GetString(
@@ -371,10 +385,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         PARTHENON_REQUIRE(jet_init_struct.r_ref > 0.0, "Input Invalid: r_ref <= 0");
       }
     } else {
-      jet_init_struct.rho_min = pin->GetReal("problem/jet", "rho_min");
-      PARTHENON_REQUIRE(jet_init_struct.rho_min > 0.0, "Input Invalid: rho_min <= 0");
-      jet_init_struct.rho_max = pin->GetReal("problem/jet", "rho_max");
-      PARTHENON_REQUIRE(jet_init_struct.rho_max > 0.0, "Input Invalid: rho_max <= 0");
+      PARTHENON_REQUIRE(jet_init_struct.nscalars >= 2,
+                        "Input Invalid: Cylindrical jet requires hydro/nscalars >= 2");
+      jet_init_struct.cyl.radius = pin->GetReal("problem/jet", "cyl_radius");
+      PARTHENON_REQUIRE(jet_init_struct.cyl.radius > 0.0,
+                        "Input Invalid: cyl_radius <= 0");
+      const Real cyl_height = pin->GetReal("problem/jet", "cyl_height");
+      PARTHENON_REQUIRE(cyl_height > 0.0, "Input Invalid: cyl_height <= 0");
+      jet_init_struct.cyl.height = jet_init_struct.x2_min + cyl_height;
+      jet_init_struct.cyl.rho_low = pin->GetReal("problem/jet", "rho_low");
+      PARTHENON_REQUIRE(jet_init_struct.cyl.rho_low > 0.0, "Input Invalid: rho_low <= 0");
+      jet_init_struct.cyl.rho_high = pin->GetReal("problem/jet", "rho_high");
+      PARTHENON_REQUIRE(jet_init_struct.cyl.rho_high > jet_init_struct.cyl.rho_low,
+                        "Input Invalid: rho_high <= rho_low");
+      jet_init_struct.cyl.pressure = pin->GetReal("problem/jet", "cyl_pressure");
+      PARTHENON_REQUIRE(jet_init_struct.cyl.pressure > 0.0,
+                        "Input Invalid: cyl_pressure <= 0");
     }
 
     // Read magnetic field information if enabled
@@ -405,18 +431,15 @@ void HydroInject(
         if (Kokkos::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k))) <
                 jet_inject_struct.radius &&
             coords.Xc<2>(j) < jet_inject_struct.height) {
+          const Real injected_density = dt * jet_inject_struct.rho_rate;
           // Inject thermal energy, kinetic energy, and mass
           cons(IEN, k, j, i) += dt * jet_inject_struct.power_density *
                                 (jet_inject_struct.q_frac + jet_inject_struct.ke_frac);
           cons(IM2, k, j, i) += dt * Kokkos::sqrt(2 * jet_inject_struct.rho_rate *
                                                   jet_inject_struct.power_density *
                                                   jet_inject_struct.ke_frac);
-          cons(IDN, k, j, i) += dt * jet_inject_struct.rho_rate;
-
-          // Update tracer if enabled
-          if (jet_inject_struct.enable_tracer) {
-            cons(jet_inject_struct.nhydro, k, j, i) = cons(IDN, k, j, i);
-          }
+          cons(IDN, k, j, i) += injected_density;
+          cons(jet_inject_struct.nhydro, k, j, i) += injected_density;
         }
       });
 }
@@ -618,7 +641,6 @@ void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) 
   jet_inject_struct.volume = hydro_pkg->Param<Real>("jet_inject_volume");
   jet_inject_struct.ke_frac = hydro_pkg->Param<Real>("jet_ke_frac");
   jet_inject_struct.q_frac = hydro_pkg->Param<Real>("jet_q_frac");
-  jet_inject_struct.enable_tracer = hydro_pkg->Param<bool>("enable_tracer");
   jet_inject_struct.nhydro = hydro_pkg->Param<int>("nhydro");
 
   // Apply a constant acceleration

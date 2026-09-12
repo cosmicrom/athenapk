@@ -73,7 +73,7 @@ eos            = adiabatic
 riemann        = hllc
 reconstruction = plm
 gamma          = 1.4  # gamma = C_p/C_v
-nscalars = 1
+nscalars       = 1    # Injected jet tracer
 
 <units>
 code_length_cgs = 1
@@ -93,4 +93,3 @@ jet_m_inject_rate = 0.005  # Jet mass injection rate
 jet_power = 0.03  # Jet power
 jet_ke_frac = 0.9  # Fraction of kinetic energy
 jet_q_frac = 0.1  # Fraction of thermal energy
-enable_tracer = true

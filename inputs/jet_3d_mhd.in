@@ -47,6 +47,7 @@ eos            = adiabatic
 riemann        = hlld
 reconstruction = plm
 gamma          = 1.4  # gamma = C_p/C_v
+nscalars       = 1    # Injected jet tracer
 
 <units>
 code_length_cgs = 1
