@@ -30,6 +30,7 @@
 #include "../gauss.hpp"
 #include "../hydro/srcterms/constant_accel.hpp"
 #include "../main.hpp"
+#include "../units.hpp"
 
 namespace jet {
 using namespace parthenon::driver::prelude;
@@ -238,18 +239,17 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
         bool inside_cylinder = false;
         if (jet_init_struct.rho_prof_mode == RhoProfileMode::Cylinder) {
           // Check if inside the desired cylinder volume
-          inside_cylinder =
-              Kokkos::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k))) <
-                  jet_init_struct.cyl.radius &&
-              coords.Xc<2>(j) < jet_init_struct.cyl.height;
+          inside_cylinder = Kokkos::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k))) <
+                                jet_init_struct.cyl.radius &&
+                            coords.Xc<2>(j) < jet_init_struct.cyl.height;
           if (inside_cylinder) {
             rho = jet_init_struct.cyl.rho_high;
 
           } else {
             rho = jet_init_struct.cyl.rho_low;
           }
-          pressure = jet_init_struct.cyl.pressure +
-                     jet_init_struct.const_accel * jet_init_struct.cyl.rho_low * offset_avg;
+          pressure = jet_init_struct.cyl.pressure + jet_init_struct.const_accel *
+                                                       jet_init_struct.cyl.rho_low * offset_avg;
         } else {
           // Create lambda function for density profile based on input profile mode
           auto rho_profile = [=](const Real r) {
@@ -393,14 +393,18 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       const Real cyl_height = pin->GetReal("problem/jet", "cyl_height");
       PARTHENON_REQUIRE(cyl_height > 0.0, "Input Invalid: cyl_height <= 0");
       jet_init_struct.cyl.height = jet_init_struct.x2_min + cyl_height;
+      const Real cyl_temp = pin->GetReal("problem/jet", "cyl_temp");
+      PARTHENON_REQUIRE(cyl_temp > 0.0, "Input Invalid: cyl_temp <= 0");
       jet_init_struct.cyl.rho_low = pin->GetReal("problem/jet", "rho_low");
       PARTHENON_REQUIRE(jet_init_struct.cyl.rho_low > 0.0, "Input Invalid: rho_low <= 0");
       jet_init_struct.cyl.rho_high = pin->GetReal("problem/jet", "rho_high");
       PARTHENON_REQUIRE(jet_init_struct.cyl.rho_high > jet_init_struct.cyl.rho_low,
                         "Input Invalid: rho_high <= rho_low");
-      jet_init_struct.cyl.pressure = pin->GetReal("problem/jet", "cyl_pressure");
-      PARTHENON_REQUIRE(jet_init_struct.cyl.pressure > 0.0,
-                        "Input Invalid: cyl_pressure <= 0");
+      const Real mu = pin->GetReal("problem/jet", "mu");
+      PARTHENON_REQUIRE(mu > 0.0, "Input Invalid: mu <= 0");
+      Units units(pin);
+      jet_init_struct.cyl.pressure =
+          jet_init_struct.cyl.rho_high * units.k_boltzmann() * cyl_temp / (mu * units.mh());
     }
 
     // Read magnetic field information if enabled

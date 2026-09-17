@@ -63,7 +63,7 @@ eos            = adiabatic
 riemann        = hlld
 reconstruction = plm
 gamma          = 1.6666666667  # Monatomic ideal gas
-pfloor = 1.0e-10  # 1e-4 of initial pressure
+pfloor = 1.0e-15
 nscalars = 2  # Jet tracer, cylinder tracer
 
 <units>
@@ -73,11 +73,12 @@ code_time_cgs = 1.0e-9  # 1 ns
 
 <problem/jet>
 rho_prof_mode = cyl
-cyl_radius = 0.8                 # cm
-cyl_height = 3.5                 # cm
-rho_low = 1.0e-5                 # g/cm^3
-rho_high = 1.0e-2                # g/cm^3
-cyl_pressure = 1.0e-6            # 1 Mbar
+cyl_radius = 0.8  # cm
+cyl_height = 3.5  # cm
+cyl_temp = 300  # K
+rho_low = 1.0e-5  # g/cm^3
+rho_high = 1.0e-2  # g/cm^3
+mu = 28
 
 const_accel = -9.80665e-16        # -980.665 cm/s^2 in -X2
 
