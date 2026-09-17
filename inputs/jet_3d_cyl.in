@@ -18,6 +18,8 @@ cfl        = 0.3     # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1      # Cycle limit
 tlim       = 400.0  # ns
 integrator = vl2     # Time integration algorithm
+dt_init    = 5.0e-3 # Limit the first explicit jet-injection update
+dt_ceil    = 5.0e-3 # Injection source is not included in the CFL estimate
 ncycle_out = 10      # Interval for stdout summary info
 
 <parthenon/mesh>
@@ -64,6 +66,7 @@ riemann        = hlld
 reconstruction = plm
 gamma          = 1.6666666667  # Monatomic ideal gas
 pfloor = 1.0e-15
+first_order_flux_correct = true
 nscalars = 2  # Jet tracer, cylinder tracer
 
 <units>
