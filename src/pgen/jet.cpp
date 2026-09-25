@@ -249,7 +249,8 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
             rho = jet_init_struct.cyl.rho_low;
           }
           pressure = jet_init_struct.cyl.pressure + jet_init_struct.const_accel *
-                                                       jet_init_struct.cyl.rho_low * offset_avg;
+                                                        jet_init_struct.cyl.rho_low *
+                                                        offset_avg;
         } else {
           // Create lambda function for density profile based on input profile mode
           auto rho_profile = [=](const Real r) {
@@ -403,8 +404,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       const Real mu = pin->GetReal("problem/jet", "mu");
       PARTHENON_REQUIRE(mu > 0.0, "Input Invalid: mu <= 0");
       Units units(pin);
-      jet_init_struct.cyl.pressure =
-          jet_init_struct.cyl.rho_high * units.k_boltzmann() * cyl_temp / (mu * units.mh());
+      jet_init_struct.cyl.pressure = jet_init_struct.cyl.rho_high * units.k_boltzmann() *
+                                     cyl_temp / (mu * units.mh());
     }
 
     // Read magnetic field information if enabled
@@ -491,21 +492,27 @@ void ConstructMagInjectPotential(
         Real a1 = 0.0;
         Real a2 = 0.0;
         Real a3 = 0.0;
+
+        // Inset the potential cutoff by one curl-stencil width so cells at
+        // r >= r_max cannot sample nonzero potential values.
+        const Real dx1 = coords.Dxc<1>(i);
+        const Real dx3 = coords.Dxc<3>(k);
+        const Real stencil_width = (dx1 > dx3) ? dx1 : dx3;
+        const Real potential_r_max = mag_inject_struct.r_max - stencil_width;
+
+        // Use a 5th order Smoothstep function to radially limit the potential.
+        Real r_limiter = 0.0;
+        if (potential_r_max > 0.0 && r < potential_r_max) {
+          const Real r_ratio = r / potential_r_max;
+          r_limiter = 1.0 - 6.0 * Kokkos::pow(r_ratio, 5) +
+                      15.0 * Kokkos::pow(r_ratio, 4) - 10.0 * Kokkos::pow(r_ratio, 3);
+        }
+
         // Update potential for loops
         if (mag_inject_struct.config == MagFieldInjectConfig::Loop) {
           // Check that current height is within inputs
           if (Kokkos::abs(h) >= mag_inject_struct.offset &&
               Kokkos::abs(h) <= mag_inject_struct.offset + mag_inject_struct.thickness) {
-            // Use 5th order Smoothstep function to radially limit field potential
-            Real r_limiter;
-            if (r >= mag_inject_struct.r_max) {
-              r_limiter = 0;
-            } else {
-              const Real r_ratio = r / mag_inject_struct.r_max;
-              r_limiter = 1 - 6 * Kokkos::pow(r_ratio, 5) + 15 * Kokkos::pow(r_ratio, 4) -
-                          10 * Kokkos::pow(r_ratio, 3);
-            }
-
             // Update potential along the axis of the jet (x2)
             a2 = mag_inject_struct.l_scale *
                  Kokkos::exp(-SQR(r / mag_inject_struct.l_scale)) * r_limiter;
@@ -516,10 +523,10 @@ void ConstructMagInjectPotential(
           const Real exp_r2_h2 = Kokkos::exp(-SQR(r / mag_inject_struct.l_scale) -
                                              SQR(h / mag_inject_struct.l_scale));
           // Calculate potential theta and height
-          const Real a_theta =
-              mag_inject_struct.l_scale * (r / mag_inject_struct.l_scale) * exp_r2_h2;
-          const Real a_h =
-              mag_inject_struct.l_scale * mag_inject_struct.alpha / 2.0 * exp_r2_h2;
+          const Real a_theta = mag_inject_struct.l_scale *
+                               (r / mag_inject_struct.l_scale) * exp_r2_h2 * r_limiter;
+          const Real a_h = mag_inject_struct.l_scale * mag_inject_struct.alpha / 2.0 *
+                           exp_r2_h2 * r_limiter;
           // Determine sin and cosine of theta
           const Real cos_theta = (r > 0.0) ? coords.Xc<1>(i) / r : 1.0;
           const Real sin_theta = (r > 0.0) ? coords.Xc<3>(k) / r : 0.0;
