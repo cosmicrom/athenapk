@@ -36,7 +36,8 @@ namespace jet {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
-// Define density profile modes enum and map
+// Define enums and maps to strings
+// Density profile modes
 enum class RhoProfileMode { Constant, Linear, Power, Exponential, Cylinder };
 std::unordered_map<std::string, RhoProfileMode> RhoProfileMap = {
     {"const", RhoProfileMode::Constant},
@@ -44,7 +45,11 @@ std::unordered_map<std::string, RhoProfileMode> RhoProfileMap = {
     {"pow", RhoProfileMode::Power},
     {"expo", RhoProfileMode::Exponential},
     {"cyl", RhoProfileMode::Cylinder}};
-// Define magnetic field injection config enum and map
+// Initial magnetic field configs
+enum class MagFieldInitConfig { Lines, Tangled };
+std::unordered_map<std::string, MagFieldInitConfig> MagFieldInitConfigMap = {
+    {"lines", MagFieldInitConfig::Lines}, {"tangled", MagFieldInitConfig::Tangled}};
+// Injection magnetic field config
 enum class MagFieldInjectConfig { Loop, Tower };
 std::unordered_map<std::string, MagFieldInjectConfig> MagFieldInjectConfigMap = {
     {"loop", MagFieldInjectConfig::Loop}, {"tower", MagFieldInjectConfig::Tower}};
@@ -77,6 +82,7 @@ struct JetInitStruct {
   int nhydro;
   int nscalars;
   Real b0;
+  MagFieldInitConfig mag_field_init_config;
 };
 
 struct HydroInjectStruct {
@@ -149,7 +155,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // If the fraction of magnetic energy of jet power is greater than zero read in
     // magnetic field injection parameters
     if (b_frac > 0.0) {
-      // Field configuration
+      // Injected field configuration
       MagFieldInjectConfig mag_config = MagFieldInjectConfigMap.at(
           pin->GetString("problem/jet", "mag_field_inject_config", {"loop", "tower"}));
       hydro_pkg->AddParam("mag_field_inject_config", mag_config);
@@ -411,6 +417,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     // Read magnetic field information if enabled
     if (jet_init_struct.fluid == Fluid::glmmhd) {
       jet_init_struct.b0 = pin->GetReal("problem/jet", "b0");
+      jet_init_struct.mag_field_init_config = MagFieldInitConfigMap.at(
+          pin->GetString("problem/jet", "mag_field_init_config", {"lines", "tangled"}));
     }
 
     // Set initial conditions
