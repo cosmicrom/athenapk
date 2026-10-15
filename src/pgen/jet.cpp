@@ -31,6 +31,7 @@
 #include "../hydro/srcterms/constant_accel.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
+#include "../utils/few_modes_ft.hpp"
 
 namespace jet {
 using namespace parthenon::driver::prelude;
@@ -139,11 +140,51 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   const Real q_frac = pin->GetReal("problem/jet", "jet_q_frac");
   PARTHENON_REQUIRE(q_frac >= 0.0, "Input Invalid: jet_q_frac < 0");
   hydro_pkg->AddParam("jet_q_frac", q_frac);
+  //
   PARTHENON_REQUIRE(hydro_pkg->Param<int>("nscalars") >= 1,
                     "Input Invalid: Jet problem requires hydro/nscalars >= 1");
 
   // If magnetic fields are enabled read in the relevant parameters
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    // Initial field configuration
+    MagFieldInitConfig mag_field_init_config = MagFieldInitConfigMap.at(
+        pin->GetString("problem/jet", "mag_field_init_config", {"lines", "tangled"}));
+    hydro_pkg->AddParam("mag_field_init_config", mag_field_init_config);
+    // Initial field amplitude (RMS magnitude for tangled fields)
+    hydro_pkg->AddParam("b0", pin->GetReal("problem/jet", "b0"));
+
+    if (mag_field_init_config == MagFieldInitConfig::Tangled) {
+      // Peak wavenumber referenced to the x1 domain length
+      const Real mag_field_init_k_peak =
+          pin->GetReal("problem/jet", "mag_field_init_k_peak");
+      PARTHENON_REQUIRE(mag_field_init_k_peak > 0.0,
+                        "Input Invalid: mag_field_init_k_peak <= 0");
+      // Number of Fourier modes
+      const int mag_field_init_num_modes =
+          pin->GetOrAddInteger("problem/jet", "mag_field_init_num_modes", 40);
+      PARTHENON_REQUIRE(mag_field_init_num_modes > 0,
+                        "Input Invalid: mag_field_init_num_modes <= 0");
+      // Random seed
+      const uint32_t mag_field_init_rseed =
+          pin->GetOrAddInteger("problem/jet", "mag_field_init_rseed", 2);
+
+      parthenon::ParArray2D<Real> k_vec = utils::few_modes_ft::GeneralMakeFewModesFT(
+          pin, mag_field_init_num_modes, mag_field_init_k_peak, mag_field_init_rseed);
+      const Real sol_weight = 1.0;
+      const Real t_corr = 1e-10;
+      const bool fill_ghosts = true;
+      utils::few_modes_ft::FewModesFT few_modes_ft(
+          pin, hydro_pkg, "jet_init_tangled", mag_field_init_num_modes, k_vec,
+          mag_field_init_k_peak, sol_weight, t_corr, mag_field_init_rseed, fill_ghosts);
+      hydro_pkg->AddParam("mag_field_init_few_modes_ft", few_modes_ft);
+
+      // Initial vector potential, separate from the runtime injection potential
+      parthenon::Metadata m({parthenon::Metadata::Cell, parthenon::Metadata::Derived,
+                             parthenon::Metadata::OneCopy},
+                            std::vector<int>({3}));
+      hydro_pkg->AddField("mag_field_init_A", m);
+    }
+
     // Jet magnetic energy fraction
     const Real b_frac = pin->GetOrAddReal("problem/jet", "jet_b_frac", 0.0);
     PARTHENON_REQUIRE(b_frac >= 0.0, "Input Invalid: jet_b_frac < 0");
@@ -260,19 +301,19 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
         } else {
           // Create lambda function for density profile based on input profile mode
           auto rho_profile = [=](const Real r) {
-            if (jet_init_struct.rho_prof_mode == RhoProfileMode::Constant) {
-              return jet_init_struct.rho_0;
-            } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
+            if (jet_init_struct.rho_prof_mode == RhoProfileMode::Linear) {
               Real c = (jet_init_struct.rho_ref - jet_init_struct.rho_0) /
                        jet_init_struct.r_ref;
               return jet_init_struct.rho_0 + c * r;
             } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Power) {
               Real c = -log(jet_init_struct.rho_ref / jet_init_struct.rho_0) / log(2.0);
               return jet_init_struct.rho_0 * pow(1.0 + r / jet_init_struct.r_ref, -c);
-            } else {
+            } else if (jet_init_struct.rho_prof_mode == RhoProfileMode::Exponential) {
               Real c = log(jet_init_struct.rho_ref / jet_init_struct.rho_0) /
                        jet_init_struct.r_ref;
               return jet_init_struct.rho_0 * exp(c * r);
+            } else {
+              return jet_init_struct.rho_0;
             }
           };
           // Initialize 7-point Gaussian Quadrature class
@@ -303,13 +344,25 @@ void SetInitialConditions(MeshBlock *pmb, ParArrayND<double, parthenon::Variable
           u(jet_init_struct.nhydro + 1, k, j, i) = rho;
         }
 
-        // Set magnetic fields if enabled
+        // Initialize magnetic fields if enabled
         if (jet_init_struct.fluid == Fluid::glmmhd) {
-          u(IB1, k, j, i) = jet_init_struct.b0;
-          u(IB2, k, j, i) = 0.0;
-          u(IB3, k, j, i) = 0.0;
+          Real b1 = 0.0;
+          Real b2 = 0.0;
+          Real b3 = 0.0;
+          Real mag_energy = 0.0;
+          if (jet_init_struct.mag_field_init_config == MagFieldInitConfig::Lines) {
+            // Set constant field lines in the x1 direction
+            b1 = jet_init_struct.b0;
+            mag_energy = 0.5 * SQR(jet_init_struct.b0);
+          } else if (jet_init_struct.mag_field_init_config ==
+                     MagFieldInitConfig::Tangled) {
+          }
+          // Update fields
+          u(IB1, k, j, i) = b1;
+          u(IB2, k, j, i) = b2;
+          u(IB3, k, j, i) = b3;
           // Update energy
-          u(IEN, k, j, i) += 0.5 * SQR(jet_init_struct.b0);
+          u(IEN, k, j, i) += mag_energy;
         }
       });
 }
@@ -347,6 +400,9 @@ void CalculateJetVolume(MeshData<Real> *md) {
   // Update hydro package value
   hydro_pkg->UpdateParam("jet_inject_volume", inject_volume);
 }
+
+void ApplyInitialTangledMagneticField(Mesh *pmesh, ParameterInput *pin,
+                                      MeshData<Real> *md);
 
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // Loop over all blocks in the mesh
@@ -392,8 +448,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         PARTHENON_REQUIRE(jet_init_struct.r_ref > 0.0, "Input Invalid: r_ref <= 0");
       }
     } else {
-      PARTHENON_REQUIRE(jet_init_struct.nscalars >= 2,
-                        "Input Invalid: Cylindrical jet requires hydro/nscalars >= 2");
+      PARTHENON_REQUIRE(
+          jet_init_struct.nscalars >= 2,
+          "Input Invalid: Cylindrical density profile requires hydro/nscalars >= 2");
       jet_init_struct.cyl.radius = pin->GetReal("problem/jet", "cyl_radius");
       PARTHENON_REQUIRE(jet_init_struct.cyl.radius > 0.0,
                         "Input Invalid: cyl_radius <= 0");
@@ -416,14 +473,16 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     // Read magnetic field information if enabled
     if (jet_init_struct.fluid == Fluid::glmmhd) {
-      jet_init_struct.b0 = pin->GetReal("problem/jet", "b0");
-      jet_init_struct.mag_field_init_config = MagFieldInitConfigMap.at(
-          pin->GetString("problem/jet", "mag_field_init_config", {"lines", "tangled"}));
+      jet_init_struct.b0 = hydro_pkg->Param<Real>("b0");
+      jet_init_struct.mag_field_init_config =
+          hydro_pkg->Param<MagFieldInitConfig>("mag_field_init_config");
     }
 
     // Set initial conditions
     SetInitialConditions(pmb, u, coords, index_ranges, jet_init_struct);
   }
+  // Generate and normalize the initial tangled field after all blocks are initialized.
+  ApplyInitialTangledMagneticField(pmesh, pin, md);
   // Calculate the jet injection volume
   CalculateJetVolume(md);
 }
@@ -467,6 +526,91 @@ void CurlMagInjectPotential(parthenon::VariablePack<Real> &A,
        (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
   b3 = (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
        (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+}
+
+void ApplyInitialTangledMagneticField(Mesh *pmesh, ParameterInput *pin,
+                                      MeshData<Real> *md) {
+  MeshBlock *pmb = md->GetBlockData(0)->GetBlockPointer();
+  std::shared_ptr<parthenon::StateDescriptor> hydro_pkg = pmb->packages.Get("Hydro");
+  if (hydro_pkg->Param<Fluid>("fluid") != Fluid::glmmhd) {
+    return;
+  }
+  if (hydro_pkg->Param<MagFieldInitConfig>("mag_field_init_config") !=
+      MagFieldInitConfig::Tangled) {
+    return;
+  }
+
+  const Real b0 = hydro_pkg->Param<Real>("b0");
+  PARTHENON_REQUIRE(b0 >= 0.0, "Input Invalid: tangled field RMS b0 < 0");
+  if (b0 == 0.0) {
+    return; // SetInitialConditions already initialized the tangled field to zero.
+  }
+
+  utils::few_modes_ft::FewModesFT few_modes_ft =
+      hydro_pkg->Param<utils::few_modes_ft::FewModesFT>("mag_field_init_few_modes_ft");
+  for (int b = 0; b < md->NumBlocks(); b++) {
+    few_modes_ft.SetPhases(md->GetBlockData(b)->GetBlockPointer(), pin);
+  }
+  // One-shot generation, including potential ghosts required by the curl stencil.
+  const Real dt = 1.0;
+  few_modes_ft.Generate(md, dt, "mag_field_init_A");
+
+  const parthenon::MeshBlockPack<parthenon::VariablePack<Real>> &cons_pack =
+      md->PackVariables(std::vector<std::string>{"cons"});
+  const parthenon::MeshBlockPack<parthenon::VariablePack<Real>> &A_pack =
+      md->PackVariables(std::vector<std::string>{"mag_field_init_A"});
+  const IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  const IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  const IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  const int num_blocks = md->NumBlocks();
+
+  // Volume weighting accounts for different cell sizes on the SMR/AMR leaf mesh.
+  Real b2_sum = 0.0;
+  pmb->par_reduce(
+      "Jet::InitialTangledFieldRMS", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+        parthenon::VariablePack<Real> &A = A_pack(b);
+        const parthenon::Coordinates_t coords = cons_pack.GetCoords(b);
+        Real b1, b2, b3;
+        CurlMagInjectPotential(A, coords, k, j, i, b1, b2, b3);
+        lsum += (SQR(b1) + SQR(b2) + SQR(b3)) * coords.CellVolume(k, j, i);
+      },
+      b2_sum);
+
+#ifdef MPI_PARALLEL
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL, MPI_SUM,
+                                    MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+
+  PARTHENON_REQUIRE(std::isfinite(b2_sum) && b2_sum > 0.0,
+                    "Initial tangled magnetic field has no finite nonzero power.");
+  const Real Lx1 = pmesh->mesh_size.xmax(X1DIR) - pmesh->mesh_size.xmin(X1DIR);
+  const Real Lx2 = pmesh->mesh_size.xmax(X2DIR) - pmesh->mesh_size.xmin(X2DIR);
+  const Real Lx3 = pmesh->mesh_size.xmax(X3DIR) - pmesh->mesh_size.xmin(X3DIR);
+  const Real field_amp = b0 / std::sqrt(b2_sum / (Lx1 * Lx2 * Lx3));
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "Jet::ApplyInitialTangledField", parthenon::DevExecSpace(), 0,
+      num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        parthenon::VariablePack<Real> &cons = cons_pack(b);
+        parthenon::VariablePack<Real> &A = A_pack(b);
+        const parthenon::Coordinates_t coords = cons.GetCoords();
+        Real b1, b2, b3;
+        CurlMagInjectPotential(A, coords, k, j, i, b1, b2, b3);
+        b1 *= field_amp;
+        b2 *= field_amp;
+        b3 *= field_amp;
+
+        // Replace the initial field while keeping the thermal energy unchanged.
+        cons(IEN, k, j, i) +=
+            0.5 * (SQR(b1) + SQR(b2) + SQR(b3) - SQR(cons(IB1, k, j, i)) -
+                   SQR(cons(IB2, k, j, i)) - SQR(cons(IB3, k, j, i)));
+        cons(IB1, k, j, i) = b1;
+        cons(IB2, k, j, i) = b2;
+        cons(IB3, k, j, i) = b3;
+      });
 }
 
 void ConstructMagInjectPotential(
