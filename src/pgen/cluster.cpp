@@ -400,7 +400,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // the perturbation (and is normalized in the following to get the desired sigma_v)
     const auto t_corr = 1e-10;
 
-    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
+    auto k_vec_v =
+        utils::few_modes_ft::ClusterMakeFewModesFT(num_modes_v, k_peak_v, rseed_v);
 
     auto few_modes_ft = FewModesFT(pin, hydro_pkg, "cluster_perturb_v", num_modes_v,
                                    k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
@@ -440,7 +441,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // This field should by construction have no compressive modes, so we fix the number.
     const auto sol_weight_b = 1.0;
 
-    auto k_vec_b = utils::few_modes_ft::MakeRandomModes(num_modes_b, k_peak_b, rseed_b);
+    auto k_vec_b =
+        utils::few_modes_ft::ClusterMakeFewModesFT(num_modes_b, k_peak_b, rseed_b);
 
     const bool fill_ghosts = true; // as we fill a vector potential to calc B
     auto few_modes_ft =

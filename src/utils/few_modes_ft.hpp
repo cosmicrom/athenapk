@@ -11,6 +11,7 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
+#include <array>
 #include <parthenon/package.hpp>
 #include <random>
 #include <sstream>
@@ -32,7 +33,13 @@ class FewModesFT {
   std::string prefix_;
   ParArray2D<Complex> var_hat_, var_hat_new_;
   ParArray2D<Real> k_vec_;
-  Real k_peak_; // peak of the power spectrum
+  // k_vec_ stores integer mode indices. k_peak_ is an x1 mode number for backwards
+  // compatibility. Cubic domains retain the original integer-wavevector arithmetic;
+  // rectangular domains use k_peak_phys_ and k_scale_ for the physical spectrum.
+  Real k_peak_;
+  Real k_peak_phys_;
+  std::array<Real, 3> k_scale_;
+  bool cubic_domain_;
   Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace> random_num_;
   Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace>::host_mirror_type
       random_num_host_;
@@ -66,7 +73,13 @@ class FewModesFT {
   }
 };
 
-// Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
-ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak, uint32_t rseed);
+// Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak.
+ParArray2D<Real> ClusterMakeFewModesFT(const int num_modes, const Real k_peak,
+                                       uint32_t rseed);
+
+// Selects modes using physical wavevectors and an x1-referenced peak mode number.
+ParArray2D<Real> GeneralMakeFewModesFT(parthenon::ParameterInput *pin,
+                                        const int num_modes, const Real k_peak,
+                                       uint32_t rseed);
 
 } // namespace utils::few_modes_ft

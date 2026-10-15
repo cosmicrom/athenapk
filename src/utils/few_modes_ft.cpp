@@ -8,6 +8,7 @@
 //  \brief Helper functions for an inverse (explicit complex to real) FT
 
 // C++ headers
+#include <cmath>
 #include <random>
 
 // Parthenon headers
@@ -43,6 +44,25 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   const auto gnx1 = pin->GetInteger("parthenon/mesh", "nx1");
   const auto gnx2 = pin->GetInteger("parthenon/mesh", "nx2");
   const auto gnx3 = pin->GetInteger("parthenon/mesh", "nx3");
+  const auto lx1 =
+      pin->GetReal("parthenon/mesh", "x1max") - pin->GetReal("parthenon/mesh", "x1min");
+  const auto lx2 =
+      pin->GetReal("parthenon/mesh", "x2max") - pin->GetReal("parthenon/mesh", "x2min");
+  const auto lx3 =
+      pin->GetReal("parthenon/mesh", "x3max") - pin->GetReal("parthenon/mesh", "x3min");
+  PARTHENON_REQUIRE(lx1 > 0.0 && lx2 > 0.0 && lx3 > 0.0,
+                    "Few modes FT requires positive domain lengths.")
+
+  // Retain the original arithmetic for cubic domains. For rectangular domains k_peak
+  // remains an x1 mode number, but spectrum shaping and projection use physical k.
+  cubic_domain_ = lx1 == lx2 && lx2 == lx3;
+  if (cubic_domain_) {
+    k_peak_phys_ = k_peak_;
+    k_scale_ = {1.0, 1.0, 1.0};
+  } else {
+    k_scale_ = {2.0 * M_PI / lx1, 2.0 * M_PI / lx2, 2.0 * M_PI / lx3};
+    k_peak_phys_ = k_scale_[0] * k_peak_;
+  }
   // Need to make this comparison on the host as (for some reason) an extended cuda device
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
@@ -86,7 +106,6 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
 
 void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto pm = pmb->pmy_mesh;
-  auto hydro_pkg = pmb->packages.Get("Hydro");
 
   // The following restriction could technically be lifted if the turbulence driver is
   // directly embedded in the hydro driver rather than a user defined source as well as
@@ -110,10 +129,6 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
                            "Few modes FT currently needs parthenon/mesh/packs_per_rank=1 "
                            "to work because of global reductions.");
 
-  const auto Lx1 = pm->mesh_size.xmax(X1DIR) - pm->mesh_size.xmin(X1DIR);
-  const auto Lx2 = pm->mesh_size.xmax(X2DIR) - pm->mesh_size.xmin(X2DIR);
-  const auto Lx3 = pm->mesh_size.xmax(X3DIR) - pm->mesh_size.xmin(X3DIR);
-
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
   // below take the logical grid size into account. For example, the local phases at level
@@ -122,13 +137,6 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto gnx1 = pm->mesh_size.nx(X1DIR) * std::pow(2, pmb->loc.level() - root_level);
   auto gnx2 = pm->mesh_size.nx(X2DIR) * std::pow(2, pmb->loc.level() - root_level);
   auto gnx3 = pm->mesh_size.nx(X3DIR) * std::pow(2, pmb->loc.level() - root_level);
-
-  // Restriction should also be easily fixed, just need to double check transforms and
-  // volume weighting everywhere
-  PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
-                               ((Lx1 == Lx2) && (Lx2 == Lx3)),
-                           "FMFT has only been tested with cubic meshes and constant "
-                           "dx/dy/dz. Remove this warning at your own risk.")
 
   const auto nx1 = pmb->block_size.nx(X1DIR);
   const auto nx2 = pmb->block_size.nx(X2DIR);
@@ -153,9 +161,11 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto &phases_k = base->Get(prefix_ + "_phases_k").data;
 
   const auto ng = fill_ghosts_ ? parthenon::Globals::nghost : 0;
+  // Evaluate phases at cell centers, including ghost cells. The half-cell offset
+  // uses each block's refinement-level resolution to sample the same physical field.
   pmb->par_for(
       "FMFT: calc phases_i", 0, nx1 - 1 + 2 * ng, KOKKOS_LAMBDA(int i) {
-        Real gi = static_cast<Real>((i + gis - ng) % static_cast<int>(gnx1));
+        Real gi = static_cast<Real>((i + gis - ng) % static_cast<int>(gnx1)) + 0.5;
         Real w_kx;
         Complex phase;
 
@@ -174,7 +184,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   pmb->par_for(
       "FMFT: calc phases_j", 0, nx2 - 1 + 2 * ng, KOKKOS_LAMBDA(int j) {
-        Real gj = static_cast<Real>((j + gjs - ng) % static_cast<int>(gnx2));
+        Real gj = static_cast<Real>((j + gjs - ng) % static_cast<int>(gnx2)) + 0.5;
         Real w_ky;
         Complex phase;
 
@@ -188,7 +198,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   pmb->par_for(
       "FMFT: calc phases_k", 0, nx3 - 1 + 2 * ng, KOKKOS_LAMBDA(int k) {
-        Real gk = static_cast<Real>((k + gks - ng) % static_cast<int>(gnx3));
+        Real gk = static_cast<Real>((k + gks - ng) % static_cast<int>(gnx3)) + 0.5;
         Real w_kz;
         Complex phase;
 
@@ -230,7 +240,11 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
   auto &var_hat = var_hat_;
   auto &var_hat_new = var_hat_new_;
 
-  const auto kpeak = k_peak_;
+  const auto kpeak_phys = k_peak_phys_;
+  const auto cubic_domain = cubic_domain_;
+  const auto kx1_scale = k_scale_[0];
+  const auto kx2_scale = k_scale_[1];
+  const auto kx3_scale = k_scale_[2];
 
   // generate new power spectrum (injection)
   pmb->par_for(
@@ -238,15 +252,20 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
       KOKKOS_LAMBDA(const int n, const int m) {
         Real kmag, tmp, norm, v_sqr;
 
-        Real kx = k_vec(0, m);
-        Real ky = k_vec(1, m);
-        Real kz = k_vec(2, m);
+        Real kx1 = k_vec(0, m);
+        Real kx2 = k_vec(1, m);
+        Real kx3 = k_vec(2, m);
+        if (!cubic_domain) {
+          kx1 *= kx1_scale;
+          kx2 *= kx2_scale;
+          kx3 *= kx3_scale;
+        }
 
-        kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
+        kmag = std::sqrt(kx1 * kx1 + kx2 * kx2 + kx3 * kx3);
 
         var_hat_new(n, m) = Complex(0., 0.);
 
-        tmp = std::pow(kmag / kpeak, 2.) * (2. - std::pow(kmag / kpeak, 2.));
+        tmp = std::pow(kmag / kpeak_phys, 2.) * (2. - std::pow(kmag / kpeak_phys, 2.));
         if (tmp < 0.) tmp = 0.;
         v_sqr = SQR(random_num(n, m, 0)) + SQR(random_num(n, m, 1));
         norm = std::sqrt(-2.0 * std::log(v_sqr) / v_sqr);
@@ -275,11 +294,16 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
         "forcing: projection", 0, num_modes - 1, KOKKOS_LAMBDA(const int m) {
           Real kmag;
 
-          Real kx = k_vec(0, m);
-          Real ky = k_vec(1, m);
-          Real kz = k_vec(2, m);
+          Real kx1 = k_vec(0, m);
+          Real kx2 = k_vec(1, m);
+          Real kx3 = k_vec(2, m);
+          if (!cubic_domain) {
+            kx1 *= kx1_scale;
+            kx2 *= kx2_scale;
+            kx3 *= kx3_scale;
+          }
 
-          kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
+          kmag = std::sqrt(kx1 * kx1 + kx2 * kx2 + kx3 * kx3);
 
           // setting kmag to 1 as a "continue" doesn't work within the parallel_for
           // construct and it doesn't affect anything (there should never be power in the
@@ -287,27 +311,27 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
           if (kmag == 0.) kmag = 1.;
 
           // make it a unit vector
-          kx /= kmag;
-          ky /= kmag;
-          kz /= kmag;
+          kx1 /= kmag;
+          kx2 /= kmag;
+          kx3 /= kmag;
 
-          Complex dot(var_hat_new(0, m).real() * kx + var_hat_new(1, m).real() * ky +
-                          var_hat_new(2, m).real() * kz,
-                      var_hat_new(0, m).imag() * kx + var_hat_new(1, m).imag() * ky +
-                          var_hat_new(2, m).imag() * kz);
+          Complex dot(var_hat_new(0, m).real() * kx1 + var_hat_new(1, m).real() * kx2 +
+                          var_hat_new(2, m).real() * kx3,
+                      var_hat_new(0, m).imag() * kx1 + var_hat_new(1, m).imag() * kx2 +
+                          var_hat_new(2, m).imag() * kx3);
 
           var_hat_new(0, m) = Complex(var_hat_new(0, m).real() * sol_weight +
-                                          (1. - 2. * sol_weight) * dot.real() * kx,
+                                          (1. - 2. * sol_weight) * dot.real() * kx1,
                                       var_hat_new(0, m).imag() * sol_weight +
-                                          (1. - 2. * sol_weight) * dot.imag() * kx);
+                                          (1. - 2. * sol_weight) * dot.imag() * kx1);
           var_hat_new(1, m) = Complex(var_hat_new(1, m).real() * sol_weight +
-                                          (1. - 2. * sol_weight) * dot.real() * ky,
+                                          (1. - 2. * sol_weight) * dot.real() * kx2,
                                       var_hat_new(1, m).imag() * sol_weight +
-                                          (1. - 2. * sol_weight) * dot.imag() * ky);
+                                          (1. - 2. * sol_weight) * dot.imag() * kx2);
           var_hat_new(2, m) = Complex(var_hat_new(2, m).real() * sol_weight +
-                                          (1. - 2. * sol_weight) * dot.real() * kz,
+                                          (1. - 2. * sol_weight) * dot.real() * kx3,
                                       var_hat_new(2, m).imag() * sol_weight +
-                                          (1. - 2. * sol_weight) * dot.imag() * kz);
+                                          (1. - 2. * sol_weight) * dot.imag() * kx3);
         });
   }
 
@@ -332,7 +356,8 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
   auto phases_j = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_j"});
   auto phases_k = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_k"});
 
-  // implictly assuming cubic box of size L=1
+  // The phase tables account for the domain geometry; no cubic-box assumption is made
+  // here.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "FMFT: Inverse FT", parthenon::DevExecSpace(), 0,
       md->NumBlocks() - 1, 0, 2, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -354,9 +379,9 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
       });
 }
 
-// Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
-ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
-                                 uint32_t rseed = 31224) {
+// Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak.
+ParArray2D<Real> ClusterMakeFewModesFT(const int num_modes, const Real k_peak,
+                                       uint32_t rseed = 31224) {
   auto k_vec = parthenon::ParArray2D<Real>("k_vec", 3, num_modes);
   auto k_vec_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec);
 
@@ -405,6 +430,80 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
   PARTHENON_REQUIRE_THROWS(
       n_attempt < max_attempts,
       "Cluster init did not succeed in calculating perturbation modes.")
+  Kokkos::deep_copy(k_vec, k_vec_h);
+
+  return k_vec;
+}
+
+ParArray2D<Real> GeneralMakeFewModesFT(parthenon::ParameterInput *pin,
+                                        const int num_modes, const Real k_peak,
+                                       uint32_t rseed = 31224) {
+  const std::array<int, 3> nx = {pin->GetInteger("parthenon/mesh", "nx1"),
+                                 pin->GetInteger("parthenon/mesh", "nx2"),
+                                 pin->GetInteger("parthenon/mesh", "nx3")};
+  const Real Lx1 =
+      pin->GetReal("parthenon/mesh", "x1max") - pin->GetReal("parthenon/mesh", "x1min");
+  const Real Lx2 =
+      pin->GetReal("parthenon/mesh", "x2max") - pin->GetReal("parthenon/mesh", "x2min");
+  const Real Lx3 =
+      pin->GetReal("parthenon/mesh", "x3max") - pin->GetReal("parthenon/mesh", "x3min");
+
+  auto k_vec = parthenon::ParArray2D<Real>("k_vec", 3, num_modes);
+  auto k_vec_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec);
+
+  const Real k_peak_scaled = 2.0 * M_PI * k_peak / Lx1;
+  const std::array<Real, 3> k_scale = {2.0 * M_PI / Lx1, 2.0 * M_PI / Lx2,
+                                       2.0 * M_PI / Lx3};
+
+  std::array<int, 3> k_high;
+  for (int d = 0; d < 3; ++d) {
+    const int max_resolved_mode = (nx[d] - 1) / 2;
+    const Real upper_bound = std::ceil(2.0 * k_peak_scaled / k_scale[d]);
+    k_high[d] = upper_bound >= max_resolved_mode ? max_resolved_mode
+                                                 : static_cast<int>(upper_bound);
+  }
+
+  std::mt19937 rng;
+  rng.seed(rseed);
+  std::uniform_int_distribution<> dist_x1(0, k_high[0]);
+  std::uniform_int_distribution<> dist_x2(-k_high[1], k_high[1]);
+  std::uniform_int_distribution<> dist_x3(-k_high[2], k_high[2]);
+
+  int n_mode = 0;
+  int n_attempt = 0;
+  constexpr int max_attempts = 1000000;
+  while (n_mode < num_modes && n_attempt < max_attempts) {
+    n_attempt += 1;
+
+    const int kx1 = dist_x1(rng);
+    const int kx2 = dist_x2(rng);
+    const int kx3 = dist_x3(rng);
+    const Real kmag =
+        std::sqrt(SQR(kx1 * k_scale[0]) + SQR(kx2 * k_scale[1]) + SQR(kx3 * k_scale[2]));
+    const Real ampl = SQR(kmag / k_peak_scaled) * (2.0 - SQR(kmag / k_peak_scaled));
+
+    bool mode_exists = false;
+    for (int n_mode_exist = 0; n_mode_exist < n_mode; n_mode_exist++) {
+      if (k_vec_h(0, n_mode_exist) == kx1 && k_vec_h(1, n_mode_exist) == kx2 &&
+          k_vec_h(2, n_mode_exist) == kx3) {
+        mode_exists = true;
+        break;
+      }
+    }
+
+    if (ampl < 0.0 || kmag < k_peak_scaled / 2.0 || kmag > 2.0 * k_peak_scaled ||
+        mode_exists) {
+      continue;
+    }
+    k_vec_h(0, n_mode) = kx1;
+    k_vec_h(1, n_mode) = kx2;
+    k_vec_h(2, n_mode) = kx3;
+    n_mode++;
+  }
+  PARTHENON_REQUIRE_THROWS(
+      n_mode == num_modes,
+      "Random few-modes FT initialization did not succeed in calculating perturbation "
+      "modes.")
   Kokkos::deep_copy(k_vec, k_vec_h);
 
   return k_vec;
